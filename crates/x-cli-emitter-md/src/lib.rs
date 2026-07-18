@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::fs;
 use std::path::Path;
-use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, ParamLocation};
+use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, ParamLocation, ResolvedSchema, SchemaRef};
 
 /// SkillEmitter trait — 不同平台各自实现
 #[async_trait]
@@ -158,6 +158,8 @@ fn render_endpoint(ep: &Endpoint, _spec: &ApiSpec) -> String {
             if rb.required { "✅" } else { "—" },
             rb.schema.name,
         ));
+        // 渲染 resolved 树
+        s.push_str(&render_resolved_schema_block(&rb.schema, 0));
     }
 
     // 响应
@@ -175,6 +177,15 @@ fn render_endpoint(ep: &Endpoint, _spec: &ApiSpec) -> String {
             ));
         }
         s.push('\n');
+        // 把每个响应的 schema 树也渲染出来
+        for r in &ep.responses {
+            if let Some(schema) = &r.schema {
+                if let Some(name) = Some(schema.name.as_str()).filter(|n| !n.is_empty() && *n != "any") {
+                    s.push_str(&format!("\n### 响应 {} schema `{}`\n\n", r.status, name));
+                    s.push_str(&render_resolved_schema_block(schema, 0));
+                }
+            }
+        }
     }
 
     // agent 调用示例
@@ -246,6 +257,121 @@ fn render_endpoint(ep: &Endpoint, _spec: &ApiSpec) -> String {
 
 fn sanitize_filename(s: &str) -> String {
     s.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+}
+
+/// 渲染 ResolvedSchema 树（B 阶段）
+///
+/// 输出 markdown 表格，递归展开 properties。遇到 `recursive: true` 终止。
+/// `depth` 限制嵌套深度（防止误用导致的极深）。
+fn render_resolved_schema_block(schema: &SchemaRef, depth: usize) -> String {
+    if depth >= 4 {
+        return format!("> 嵌套过深（>4 层），已截断\n");
+    }
+    let Some(resolved) = &schema.resolved else {
+        // 没有 resolved 树：返回原 schema 描述
+        return format!(
+            "> schema `{}`（未解析）\n",
+            schema.name
+        );
+    };
+    if resolved.recursive {
+        return format!("> schema `{}` — 循环引用回填\n", schema.name);
+    }
+    let mut out = String::new();
+    render_resolved_into(&mut out, schema, resolved, depth);
+    out
+}
+
+fn render_resolved_into(
+    out: &mut String,
+    schema: &SchemaRef,
+    resolved: &ResolvedSchema,
+    depth: usize,
+) {
+    use x_cli_core::ir::SchemaKind;
+    match resolved.kind {
+        SchemaKind::Object => {
+            if let Some(desc) = &schema.description {
+                out.push_str(&format!("> {desc}\n\n"));
+            }
+            out.push_str("| 字段 | 类型 | 必填 | 说明 |\n");
+            out.push_str("|---|---|---|---|\n");
+            for (pname, pschema) in &resolved.properties {
+                let required = if resolved.required.contains(pname) {
+                    "✅"
+                } else {
+                    "—"
+                };
+                let desc = pschema.description.as_deref().unwrap_or("");
+                let type_label = schema_type_label(pschema);
+                out.push_str(&format!("| `{pname}` | {type_label} | {required} | {desc} |\n"));
+            }
+            out.push('\n');
+            // 递归：如果某个 property 是 object/array 且有 properties/items，再展开
+            for (pname, pschema) in &resolved.properties {
+                if let Some(inner) = &pschema.resolved {
+                    if matches!(inner.kind, SchemaKind::Object) && !inner.properties.is_empty() {
+                        out.push_str(&format!(
+                            "### `{pname}` 类型（{}）\n\n",
+                            pschema.name
+                        ));
+                        render_resolved_into(out, pschema, inner, depth + 1);
+                    } else if matches!(inner.kind, SchemaKind::Array) {
+                        if let Some(items) = &inner.items {
+                            if let Some(items_resolved) = &items.resolved {
+                                if matches!(items_resolved.kind, SchemaKind::Object)
+                                    && !items_resolved.properties.is_empty()
+                                {
+                                    out.push_str(&format!(
+                                        "### `{pname}` 数组元素（{}）\n\n",
+                                        items.name
+                                    ));
+                                    render_resolved_into(out, items, items_resolved, depth + 1);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        SchemaKind::Array => {
+            if let Some(items) = &resolved.items {
+                out.push_str(&format!("数组元素类型：`{}`\n\n", items.name));
+                if let Some(items_resolved) = &items.resolved {
+                    if matches!(items_resolved.kind, SchemaKind::Object)
+                        && !items_resolved.properties.is_empty()
+                    {
+                        render_resolved_into(out, items, items_resolved, depth + 1);
+                    }
+                }
+            }
+        }
+        SchemaKind::Scalar => {
+            out.push_str(&format!("scalar `{}`\n\n", schema.name));
+        }
+        SchemaKind::Any => {
+            out.push_str(&format!("any\n\n"));
+        }
+    }
+}
+
+fn schema_type_label(schema: &SchemaRef) -> String {
+    use x_cli_core::ir::SchemaKind;
+    let Some(r) = &schema.resolved else {
+        return format!("`{}`", schema.name);
+    };
+    match r.kind {
+        SchemaKind::Object => format!("object `{}`", schema.name),
+        SchemaKind::Array => {
+            if let Some(items) = &r.items {
+                format!("array<`{}`>", items.name)
+            } else {
+                "array".to_string()
+            }
+        }
+        SchemaKind::Scalar => format!("`{}`", schema.name),
+        SchemaKind::Any => "any".to_string(),
+    }
 }
 
 trait MethodStr {

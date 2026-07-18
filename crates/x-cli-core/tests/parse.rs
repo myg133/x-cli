@@ -107,3 +107,143 @@ fn httpbin_basic() {
         .iter()
         .any(|p| matches!(p.location, x_cli_core::ParamLocation::Path) && p.name == "path"));
 }
+
+// ─────────────── B 阶段：$ref 解析 ───────────────
+
+#[test]
+fn petstore_request_body_resolves_pet_schema() {
+    use x_cli_core::SchemaKind;
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let ep = spec
+        .endpoints
+        .get("pet__post__pets")
+        .expect("createPet endpoint");
+    let rb = ep.request_body.as_ref().expect("has body");
+    let resolved = rb.schema.resolved.as_ref().expect("resolved tree");
+    assert_eq!(resolved.kind, SchemaKind::Object);
+    // Pet 的三个字段必须都解析出来
+    assert!(resolved.properties.contains_key("id"));
+    assert!(resolved.properties.contains_key("name"));
+    assert!(resolved.properties.contains_key("tag"));
+    // name 是 required
+    assert!(resolved.required.contains(&"name".to_string()));
+    // 不是 recursive
+    assert!(!resolved.recursive);
+}
+
+#[test]
+fn petstore_response_schema_also_resolves() {
+    use x_cli_core::SchemaKind;
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let ep = spec
+        .endpoints
+        .get("pet__get__pets_petId")
+        .expect("getPet");
+    let resp_200 = ep
+        .responses
+        .iter()
+        .find(|r| r.status == 200)
+        .expect("200 response");
+    let schema = resp_200.schema.as_ref().expect("schema");
+    let resolved = schema.resolved.as_ref().expect("resolved");
+    assert_eq!(resolved.kind, SchemaKind::Object);
+    assert!(resolved.properties.contains_key("name"));
+}
+
+#[test]
+fn recursive_schema_does_not_stack_overflow() {
+    // 自引用 schema：Tree { value, children: [Tree] }
+    let yaml = r#"
+openapi: 3.0.3
+info:
+  title: Tree
+  version: 1.0.0
+paths:
+  /tree:
+    get:
+      tags: [tree]
+      operationId: getTree
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tree'
+components:
+  schemas:
+    Tree:
+      type: object
+      title: Tree
+      required: [value]
+      properties:
+        value:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tree'
+"#;
+    let spec = parse_openapi_str(yaml).expect("parse");
+    let ep = spec.endpoints.get("tree__get__tree").expect("getTree");
+    let r = ep
+        .responses
+        .iter()
+        .find(|r| r.status == 200)
+        .expect("200");
+    let schema = r.schema.as_ref().expect("schema");
+    let resolved = schema.resolved.as_ref().expect("resolved");
+    assert_eq!(resolved.kind, x_cli_core::SchemaKind::Object);
+    // 顶层有 value + children
+    assert!(resolved.properties.contains_key("value"));
+    assert!(resolved.properties.contains_key("children"));
+    // children 数组的 items 应该是 recursive
+    let children = resolved.properties.get("children").expect("children");
+    let children_resolved = children.resolved.as_ref().expect("children resolved");
+    assert_eq!(children_resolved.kind, x_cli_core::SchemaKind::Array);
+    let items = children_resolved.items.as_ref().expect("items");
+    let items_resolved = items.resolved.as_ref().expect("items resolved");
+    assert!(items_resolved.recursive, "items should be marked recursive");
+}
+
+#[test]
+fn self_referential_object_schema_marked_recursive() {
+    // 直接自引用：A { refToA: A }
+    let yaml = r#"
+openapi: 3.0.3
+info:
+  title: A
+  version: 1.0.0
+paths:
+  /a:
+    get:
+      tags: [a]
+      operationId: getA
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/A'
+components:
+  schemas:
+    A:
+      type: object
+      title: A
+      properties:
+        refToA:
+          $ref: '#/components/schemas/A'
+"#;
+    let spec = parse_openapi_str(yaml).expect("parse");
+    let ep = spec.endpoints.get("a__get__a").expect("getA");
+    let r = ep.responses.iter().find(|r| r.status == 200).expect("200");
+    let schema = r.schema.as_ref().expect("schema");
+    let resolved = schema.resolved.as_ref().expect("resolved");
+    assert!(resolved.properties.contains_key("refToA"));
+    let ref_to_a = resolved.properties.get("refToA").unwrap();
+    let inner = ref_to_a.resolved.as_ref().expect("inner resolved");
+    assert!(inner.recursive, "refToA should be marked recursive");
+    // recursive 节点的 properties 是空的（不再展开）
+    assert!(inner.properties.is_empty());
+}

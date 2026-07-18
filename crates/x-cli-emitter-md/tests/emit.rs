@@ -117,3 +117,95 @@ async fn httpbin_emit_succeeds() {
     emitter.emit(&spec, &out).await.expect("emit httpbin");
     assert!(out.join("SKILL.md").exists());
 }
+
+// ─────────────── B 阶段：resolved 树渲染 ───────────────
+
+#[tokio::test]
+async fn endpoint_with_request_body_renders_resolved_properties() {
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter.emit(&spec, &out).await.expect("emit");
+
+    let ep = std::fs::read_to_string(
+        out.join("endpoints").join("pet__post__pets.md"),
+    )
+    .expect("read post endpoint md");
+
+    // Pet 的属性必须出现在请求体 schema 表里
+    assert!(ep.contains("`id`"), "expected `id` field in request body schema");
+    assert!(ep.contains("`name`"), "expected `name` field");
+    assert!(ep.contains("`tag`"), "expected `tag` field");
+    // name 标记为必填
+    assert!(ep.contains("name") && ep.contains("✅"));
+    // 字段类型是 scalar（string）
+    assert!(ep.contains("`string`"), "expected scalar string type labels");
+}
+
+#[tokio::test]
+async fn response_schema_renders_too() {
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter.emit(&spec, &out).await.expect("emit");
+
+    let ep = std::fs::read_to_string(
+        out.join("endpoints").join("pet__get__pets_petId.md"),
+    )
+    .expect("read getPet md");
+
+    // 响应 200 schema 必须渲染 Pet 的字段
+    assert!(ep.contains("响应 200"));
+    assert!(ep.contains("`id`") || ep.contains("`name`"));
+}
+
+#[tokio::test]
+async fn recursive_schema_does_not_loop_in_markdown() {
+    // 自引用 Tree{value, children:[Tree]} - 必须渲染出来 + children 标 recursive
+    let yaml = r#"
+openapi: 3.1.0
+info:
+  title: Tree
+  version: 1.0.0
+paths:
+  /tree:
+    get:
+      tags: [tree]
+      operationId: getTree
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tree'
+components:
+  schemas:
+    Tree:
+      type: object
+      title: Tree
+      required: [value]
+      properties:
+        value:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tree'
+"#;
+    let spec = parse_openapi_str(yaml).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter.emit(&spec, &out).await.expect("emit tree");
+
+    let ep = std::fs::read_to_string(
+        out.join("endpoints").join("tree__get__tree.md"),
+    )
+    .expect("read tree md");
+
+    assert!(ep.contains("`value`"));
+    assert!(ep.contains("`children`"));
+    // 数组元素的类型必须是 array<`Tree`>，递归不爆栈
+    assert!(ep.contains("array<`Tree`>"), "should render array<Tree>");
+    // 不应该无限递归（如果爆栈这个测试根本到不了这里）
+}

@@ -117,14 +117,17 @@ pub struct Response {
 
 /// Schema 引用
 ///
-/// `name` 是给人看的类型名（用于生成 skill 描述），`json_schema` 是原始 JSON Schema
-/// 用于运行时校验和参数解析。B 阶段可在此处加更多结构化字段（required、properties 等）。
+/// - `name` / `description`：给人看的类型名
+/// - `json_schema`：完整 JSON Schema 序列化结果（运行时校验/转换备用）
+/// - `resolved`：解析 $ref 后的结构化树（B 阶段新增），用于 emitter 渲染和后续 LLM 理解
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaRef {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
     pub json_schema: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<Box<ResolvedSchema>>,
 }
 
 impl SchemaRef {
@@ -134,6 +137,37 @@ impl SchemaRef {
             name: "any".to_string(),
             description: None,
             json_schema: serde_json::json!({}),
+            resolved: None,
         }
     }
+}
+
+/// 解析后的结构化 schema
+///
+/// properties 和 required 表达 Object；items 表达 Array。
+/// 循环引用通过 `recursive: true` 标记回填，不再深入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedSchema {
+    pub kind: SchemaKind,
+    /// Object: 属性定义
+    #[serde(default)]
+    pub properties: BTreeMap<String, SchemaRef>,
+    /// Object: 必填字段
+    #[serde(default)]
+    pub required: Vec<String>,
+    /// Array: 元素类型
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<Box<SchemaRef>>,
+    /// true 表示此处遇到了循环引用（schema 名字已经在解析路径上）
+    #[serde(default)]
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SchemaKind {
+    Object,
+    Array,
+    Scalar,
+    Any,
 }

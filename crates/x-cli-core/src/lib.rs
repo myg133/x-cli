@@ -10,6 +10,6 @@ pub mod protocol;
 pub mod error;
 
 pub use error::{Error, Result};
-pub use ir::{ApiSpec, Domain, Endpoint, Param, ParamLocation, RequestBody, Response, HttpMethod};
+pub use ir::{ApiSpec, Domain, Endpoint, Param, ParamLocation, RequestBody, ResolvedSchema, Response, HttpMethod, SchemaKind, SchemaRef};
 pub use openapi::{parse_openapi, parse_openapi_str};
 pub use protocol::{RpcRequest, RpcResponse, RpcError, RpcMethod};
