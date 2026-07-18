@@ -1,0 +1,24 @@
+[package]
+name = "x-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "x-cli: 把后端 OpenAPI 接口转成 agent 可用的 skill"
+
+[[bin]]
+name = "x"
+path = "src/main.rs"
+
+[dependencies]
+x-cli-core = { workspace = true }
+x-cli-runtime = { workspace = true }
+x-cli-emitter-md = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

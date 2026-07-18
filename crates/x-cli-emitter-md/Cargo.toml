@@ -1,0 +1,17 @@
+[package]
+name = "x-cli-emitter-md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "x-cli markdown skill emitter: 把 IR 渲染为 agent 用的 markdown skill 描述"
+
+[dependencies]
+x-cli-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,38 @@
+openapi: 3.0.3
+info:
+  title: httpbin echo
+  version: 1.0.0
+  description: 用 httpbin 做端到端连通性测试
+servers:
+  - url: https://httpbin.org
+
+paths:
+  /get:
+    get:
+      tags: [echo]
+      summary: 回显 query + headers
+      operationId: get
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: 回显字段
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+  /anything/{path}:
+    get:
+      tags: [echo]
+      summary: 回显 path
+      operationId: anything
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok

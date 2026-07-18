@@ -1,0 +1,151 @@
+openapi: 3.0.3
+info:
+  title: Pet Store API
+  version: 1.0.0
+  description: |
+    极简示例 API，用于测试 x-cli 的端到端流程。
+    包含 2 个业务域：pet 和 store。
+
+servers:
+  - url: https://petstore.example.com/v1
+
+tags:
+  - name: pet
+    description: 宠物相关
+  - name: store
+    description: 商店相关
+
+paths:
+  /pets:
+    get:
+      tags: [pet]
+      summary: 列出宠物
+      operationId: listPets
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: 最多返回多少只
+          schema:
+            type: integer
+            format: int32
+            default: 20
+      responses:
+        '200':
+          description: 一组宠物
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pet'
+    post:
+      tags: [pet]
+      summary: 创建一只宠物
+      operationId: createPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pet'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+
+  /pets/{petId}:
+    get:
+      tags: [pet]
+      summary: 获取一只宠物
+      operationId: getPet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: 宠物 ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 单只宠物
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '404':
+          description: 找不到
+
+  /store/orders:
+    post:
+      tags: [store]
+      summary: 下单
+      operationId: placeOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+      responses:
+        '201':
+          description: 下单成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+  /store/orders/{orderId}:
+    get:
+      tags: [store]
+      summary: 查询订单
+      operationId: getOrder
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 订单详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+components:
+  schemas:
+    Pet:
+      type: object
+      title: Pet
+      description: 一只宠物
+      required: [name]
+      properties:
+        id:
+          type: string
+          description: 唯一 ID
+        name:
+          type: string
+          description: 名字
+        tag:
+          type: string
+          description: 分类
+    Order:
+      type: object
+      title: Order
+      description: 一个订单
+      required: [petId, quantity]
+      properties:
+        id:
+          type: string
+        petId:
+          type: string
+        quantity:
+          type: integer
+        status:
+          type: string
+          description: 订单状态

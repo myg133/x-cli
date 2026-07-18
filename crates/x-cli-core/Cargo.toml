@@ -1,0 +1,17 @@
+[package]
+name = "x-cli-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "x-cli core: OpenAPI 解析、IR 数据模型、协议 schema"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+oas3 = { workspace = true, features = ["yaml-spec"] }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }

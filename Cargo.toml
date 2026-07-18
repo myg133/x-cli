@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/x-cli",
+    "crates/x-cli-core",
+    "crates/x-cli-runtime",
+    "crates/x-cli-emitter-md",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# 内部 crate
+x-cli-core = { path = "crates/x-cli-core" }
+x-cli-runtime = { path = "crates/x-cli-runtime" }
+x-cli-emitter-md = { path = "crates/x-cli-emitter-md" }
+
+# 第三方依赖（统一管理版本）
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+thiserror = "1"
+anyhow = "1"
+oas3 = "0.16"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "process", "sync", "time"] }
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+schemars = { version = "0.8", features = ["derive"] }

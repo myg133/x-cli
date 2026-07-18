@@ -1,0 +1,26 @@
+# Rust
+/target
+**/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# 编辑器
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# 临时
+*.tmp
+*.bak
+*.log
+
+# 生成的 skill 输出（按需保留）
+/generated
+/out
+
+# 系统
+.DS_Store
+Thumbs.db
