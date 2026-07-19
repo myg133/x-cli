@@ -108,3 +108,34 @@ fn superset_path_params_resolved() {
     assert_eq!(path_params[0].name, "pk");
     assert!(path_params[0].required);
 }
+
+#[test]
+fn oas3_0_parameters_content_style_gets_resolved() {
+    // Superset 用 OAS 3.0 的 `parameters[].content` 风格，转换层必须把
+    // `content.application/json.schema` 提到 `parameters[].schema`，
+    // 否则 oas3 0.16 拿不到 schema，参数类型变成 any。
+    let spec = parse_openapi_str_json(SUPERSET).expect("parse");
+    let ep = spec
+        .endpoints
+        .values()
+        .find(|e| e.path == "/api/v1/advanced_data_type/convert" && e.method == x_cli_core::HttpMethod::Get)
+        .expect("advanced data type convert endpoint");
+    let q = ep
+        .params
+        .iter()
+        .find(|p| p.name == "q")
+        .expect("q parameter");
+    // schema name 应该是被解析的 schema 名，不是 any / object
+    assert_ne!(q.schema.name, "any");
+    assert!(
+        q.schema.name.contains("advanced_data_type_convert"),
+        "q schema name should contain 'advanced_data_type_convert', got '{}'",
+        q.schema.name
+    );
+    // resolved 树应该有 properties（是个 Object schema）
+    let resolved = q.schema.resolved.as_ref().expect("resolved");
+    assert_eq!(resolved.kind, x_cli_core::SchemaKind::Object);
+    // properties 包含 type 和 values（来自源 schema）
+    assert!(resolved.properties.contains_key("type"));
+    assert!(resolved.properties.contains_key("values"));
+}

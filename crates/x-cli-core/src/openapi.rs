@@ -37,9 +37,72 @@ pub fn parse_openapi_str(yaml: &str) -> Result<ApiSpec> {
 }
 
 /// 从 JSON 字符串解析 OpenAPI 3 文档
+///
+/// 自动做 3.0 → 3.1 兼容转换（主要是 `parameters[].content` → `parameters[].schema`），
+/// 这样 oas3 0.16（期望 3.1）能正确解析老式 3.0 文档。
 pub fn parse_openapi_str_json(json: &str) -> Result<ApiSpec> {
-    let spec: OpenApiV3Spec = oas3::from_json(json).map_err(|e| Error::OpenApiParse(e.to_string()))?;
+    let raw: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| Error::OpenApiParse(e.to_string()))?;
+    let normalized = convert_oas_3_0_to_3_1(raw);
+    let normalized_str = serde_json::to_string(&normalized)
+        .map_err(|e| Error::OpenApiParse(format!("reencode: {e}")))?;
+    let spec: OpenApiV3Spec = oas3::from_json(&normalized_str)
+        .map_err(|e| Error::OpenApiParse(e.to_string()))?;
     Ok(convert(&spec))
+}
+
+/// OAS 3.0 → 3.1 兼容转换。
+///
+/// 处理 3.0 风格 `parameters[].content` —— oas3 0.16（按 3.1 解析）不识别，
+/// 会把 query/header param 的 schema 丢掉，结果 schema 变成 `any`。
+///
+/// 转换规则：取 `content` 第一个 media type 的 `schema`，移到 `parameters[].schema`，
+/// 删除 `content`。
+fn convert_oas_3_0_to_3_1(mut root: serde_json::Value) -> serde_json::Value {
+    if let Some(obj) = root.as_object_mut() {
+        if let Some(paths) = obj.get_mut("paths") {
+            convert_paths(paths);
+        }
+    }
+    root
+}
+
+fn convert_paths(value: &mut serde_json::Value) {
+    let Some(paths_obj) = value.as_object_mut() else { return };
+    for (_path, path_item) in paths_obj {
+        if let Some(pi) = path_item.as_object_mut() {
+            // path-item 级 parameters
+            if let Some(params) = pi.get_mut("parameters") {
+                convert_params_array(params);
+            }
+            // 每个 method 的 parameters
+            for (_method, op) in pi.iter_mut() {
+                if let Some(op_obj) = op.as_object_mut() {
+                    if let Some(params) = op_obj.get_mut("parameters") {
+                        convert_params_array(params);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn convert_params_array(value: &mut serde_json::Value) {
+    if let Some(arr) = value.as_array_mut() {
+        for param in arr {
+            if let Some(p) = param.as_object_mut() {
+                if let Some(content) = p.remove("content") {
+                    if let Some(media) = content.as_object().and_then(|o| {
+                        o.values().next().and_then(|v| v.as_object())
+                    }) {
+                        if let Some(schema) = media.get("schema") {
+                            p.insert("schema".to_string(), schema.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn convert(spec: &OasSpec) -> ApiSpec {
