@@ -248,14 +248,19 @@ steps:
         .await
         .expect("emit");
 
-    // workflows/ 目录 + 一份 md
+    // workflows/ 目录 + 2 份文件（md + yaml）
     let wf_dir = out.join("workflows");
     assert!(wf_dir.exists(), "workflows dir should exist");
     let files: Vec<_> = std::fs::read_dir(&wf_dir)
         .unwrap()
         .filter_map(|e| e.ok())
         .collect();
-    assert_eq!(files.len(), 1, "expected 1 workflow file");
+    assert_eq!(files.len(), 2, "expected 2 workflow files (md + yaml)");
+
+    // 必须有 md 和 yaml
+    let has_md = files.iter().any(|f| f.path().extension().and_then(|s| s.to_str()) == Some("md"));
+    let has_yaml = files.iter().any(|f| f.path().extension().and_then(|s| s.to_str()) == Some("yaml"));
+    assert!(has_md && has_yaml, "must have both .md and .yaml");
 
     // SKILL.md 必须含工作流段
     let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("skill");

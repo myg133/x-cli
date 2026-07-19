@@ -10,6 +10,7 @@ description = "x-cli markdown skill emitter: 把 IR 渲染为 agent 用的 markd
 x-cli-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 

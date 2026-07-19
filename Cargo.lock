@@ -1674,6 +1674,7 @@ dependencies = [
  "async-trait",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tokio",
  "x-cli-core",
 ]

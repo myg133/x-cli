@@ -69,6 +69,13 @@ impl SkillEmitter for MarkdownEmitter {
                     body,
                 )
                 .context("write workflow md")?;
+                // 机器可读版本：runtime 用这个加载
+                let yaml = serde_yaml::to_string(wf).context("serialize workflow yaml")?;
+                fs::write(
+                    out_dir.join("workflows").join(format!("{safe}.yaml")),
+                    yaml,
+                )
+                .context("write workflow yaml")?;
             }
         }
 

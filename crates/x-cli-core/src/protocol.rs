@@ -58,11 +58,15 @@ pub enum RpcId {
 
 /// 当前支持的 methods
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum RpcMethod {
     /// 调用一个 endpoint
+    #[serde(rename = "call")]
     Call,
+    /// 执行一个 workflow
+    #[serde(rename = "workflow.run")]
+    WorkflowRun,
     /// 健康检查
+    #[serde(rename = "ping")]
     Ping,
 }
 
@@ -93,6 +97,37 @@ pub struct CallResult {
     pub body: Value,
 }
 
+/// `workflow.run` method 的参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowRunParams {
+    /// workflow 名字
+    pub workflow: String,
+    /// workflow 外部输入（按 name 取）
+    #[serde(default)]
+    pub inputs: Value,
+}
+
+/// `workflow.run` method 的结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowRunResult {
+    /// "ok" 或 "error"
+    pub status: String,
+    /// 每步的执行结果
+    pub steps: Vec<WorkflowStepResult>,
+    /// 最后一步响应 body（agent 通常拿这个）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outputs: Option<Value>,
+}
+
+/// workflow 单步结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStepResult {
+    pub name: String,
+    pub endpoint: String,
+    pub status: u16,
+    pub body: Value,
+}
+
 /// 标准 JSON-RPC 错误码
 pub mod error_code {
     pub const PARSE_ERROR: i32 = -32700;
@@ -104,4 +139,7 @@ pub mod error_code {
     pub const ENDPOINT_NOT_FOUND: i32 = -32001;
     pub const HTTP_ERROR: i32 = -32002;
     pub const AUTH_ERROR: i32 = -32003;
+    pub const WORKFLOW_NOT_FOUND: i32 = -32010;
+    pub const WORKFLOW_STEP_FAILED: i32 = -32011;
+    pub const WORKFLOW_INPUT_INVALID: i32 = -32012;
 }

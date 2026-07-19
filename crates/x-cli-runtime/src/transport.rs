@@ -4,20 +4,28 @@
 //! 这是 skill ↔ x-cli 的稳定 ABI。B 阶段可加 ndjson 批处理、Stream 响应、心跳。
 
 use crate::http::HttpCaller;
+use crate::workflow_executor::WorkflowExecutor;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing::{debug, error, warn};
-use x_cli_core::ir::ApiSpec;
+use x_cli_core::ir::{ApiSpec, Workflow};
 use x_cli_core::protocol::{
     error_code, CallParams, CallResult, RpcError, RpcId, RpcMethod, RpcRequest, RpcResponse,
+    WorkflowRunParams, WorkflowRunResult,
 };
 
 /// 启动 stdio 上的 JSON-RPC 服务
-pub async fn serve_stdio(spec: Arc<ApiSpec>, base_url: Option<String>, caller: HttpCaller) {
+pub async fn serve_stdio(
+    spec: Arc<ApiSpec>,
+    workflows: BTreeMap<String, Arc<Workflow>>,
+    base_url: Option<String>,
+    caller: HttpCaller,
+) {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    serve(stdin, stdout, spec, base_url, caller).await;
+    serve(stdin, stdout, spec, workflows, base_url, caller).await;
 }
 
 /// 在任意 reader/writer 上跑 JSON-RPC 服务（用于测试和未来的 sidecar 模式）
@@ -25,6 +33,7 @@ pub async fn serve<R, W>(
     reader: R,
     mut writer: W,
     spec: Arc<ApiSpec>,
+    workflows: BTreeMap<String, Arc<Workflow>>,
     base_url: Option<String>,
     caller: HttpCaller,
 ) where
@@ -33,6 +42,13 @@ pub async fn serve<R, W>(
 {
     let mut lines = BufReader::new(reader).lines();
 
+    let executor = Arc::new(WorkflowExecutor::new(
+        spec.clone(),
+        workflows,
+        base_url.clone(),
+        caller.clone(),
+    ));
+
     debug!("x-cli runtime ready (JSON-RPC)");
 
     while let Ok(Some(line)) = lines.next_line().await {
@@ -40,7 +56,7 @@ pub async fn serve<R, W>(
         if line.is_empty() {
             continue;
         }
-        let resp = handle_line(line, &spec, base_url.as_deref(), &caller).await;
+        let resp = handle_line(line, &spec, &executor).await;
         match resp {
             Ok(r) => {
                 if let Ok(s) = serde_json::to_string(&r) {
@@ -71,8 +87,7 @@ pub async fn serve<R, W>(
 async fn handle_line(
     line: &str,
     spec: &ApiSpec,
-    base_url: Option<&str>,
-    caller: &HttpCaller,
+    executor: &Arc<WorkflowExecutor>,
 ) -> Result<RpcResponse, RpcError> {
     let req: RpcRequest = serde_json::from_str(line)
         .map_err(|e| RpcError {
@@ -105,8 +120,16 @@ async fn handle_line(
             let query = params.query;
             let headers = params.headers;
             let body = params.body;
-            match caller
-                .call(endpoint, base_url, &path_params, &query, &headers, body.as_ref())
+            match executor
+                .http_caller()
+                .call(
+                    endpoint,
+                    executor.base_url().as_deref(),
+                    &path_params,
+                    &query,
+                    &headers,
+                    body.as_ref(),
+                )
                 .await
             {
                 Ok(r) => {
@@ -131,6 +154,26 @@ async fn handle_line(
                         data: None,
                     })
                 }
+            }
+        }
+        RpcMethod::WorkflowRun => {
+            let params: WorkflowRunParams =
+                serde_json::from_value(req.params.clone()).map_err(|e| RpcError {
+                    code: error_code::INVALID_PARAMS,
+                    message: format!("invalid workflow.run params: {e}"),
+                    data: None,
+                })?;
+            match executor.run(&params.workflow, params.inputs).await {
+                Ok(result) => {
+                    let value = serde_json::to_value(&result).unwrap_or(Value::Null);
+                    Ok(RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        id: req.id,
+                        result: Some(value),
+                        error: None,
+                    })
+                }
+                Err(e) => Err(e),
             }
         }
     }

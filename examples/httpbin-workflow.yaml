@@ -1,0 +1,21 @@
+name: 探针并回显
+description: |
+  演示 workflow.run：
+  1. 用外部 input.path 探针一个 URL
+  2. 用上一步返回的 url 再调一次（验 step 串接）
+inputs:
+  - name: target
+    type: string
+    description: 要探的 path
+    default: "hello-from-workflow"
+steps:
+  - name: probe
+    endpoint: echo__get__anything_path
+    inputs:
+      path_params:
+        path: "$input.target"
+  - name: echo
+    endpoint: echo__get__anything_path
+    inputs:
+      path_params:
+        path: "$steps.probe.response.body.url"

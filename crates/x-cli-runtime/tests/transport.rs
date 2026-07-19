@@ -23,7 +23,7 @@ async fn round_trip(
 
     let caller = HttpCaller::new(AuthProfile::default()).expect("caller");
     let serve_task = tokio::spawn(async move {
-        serve(server_read, server_write, spec, None, caller).await;
+        serve(server_read, server_write, spec, std::collections::BTreeMap::new(), None, caller).await;
     });
 
     // 写请求 + 关闭写端触发 EOF

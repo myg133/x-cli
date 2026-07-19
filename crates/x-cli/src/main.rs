@@ -7,10 +7,11 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
-use x_cli_core::ir::ApiSpec;
+use x_cli_core::ir::{ApiSpec, Workflow};
 use x_cli_core::{parse_openapi, parse_workflow};
 use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter};
 use x_cli_runtime::{serve_stdio, AuthProfile, HttpCaller};
@@ -121,8 +122,34 @@ async fn cmd_serve(skill: PathBuf, base_url_override: Option<String>) -> Result<
     let raw = std::fs::read_to_string(&ir_path)
         .with_context(|| format!("read {}", ir_path.display()))?;
     let spec: ApiSpec = serde_json::from_str(&raw).context("parse ir.json")?;
+
+    // 加载 workflows/ 下的所有 .yaml
+    let workflows = load_workflows(&skill).context("load workflows")?;
+    if !workflows.is_empty() {
+        println!("✓ 加载 {} 个工作流", workflows.len());
+    }
+
     let base_url = base_url_override.or(spec.base_url.clone());
     let caller = HttpCaller::new(AuthProfile::default()).context("build http caller")?;
-    serve_stdio(Arc::new(spec), base_url, caller).await;
+    serve_stdio(Arc::new(spec), workflows, base_url, caller).await;
     Ok(())
+}
+
+fn load_workflows(skill_dir: &std::path::Path) -> Result<BTreeMap<String, Arc<Workflow>>> {
+    let mut out = BTreeMap::new();
+    let wf_dir = skill_dir.join("workflows");
+    if !wf_dir.exists() {
+        return Ok(out);
+    }
+    for entry in std::fs::read_dir(&wf_dir).context("read workflows dir")? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("yaml") {
+            continue;
+        }
+        let wf: Workflow = parse_workflow(&path)
+            .with_context(|| format!("parse {}", path.display()))?;
+        out.insert(wf.name.clone(), Arc::new(wf));
+    }
+    Ok(out)
 }
