@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use x_cli_core::ir::ApiSpec;
-use x_cli_core::parse_openapi;
+use x_cli_core::{parse_openapi, parse_workflow};
 use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter};
 use x_cli_runtime::{serve_stdio, AuthProfile, HttpCaller};
 
@@ -36,6 +36,9 @@ enum Cmd {
         /// 输出目录
         #[arg(short, long)]
         out: PathBuf,
+        /// 可选：workflow.yaml 路径
+        #[arg(long)]
+        workflow: Vec<PathBuf>,
     },
     /// 启动 stdio JSON-RPC 服务（agent 加载 skill 后调这个）
     Serve {
@@ -59,7 +62,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Parse { openapi } => cmd_parse(openapi),
-        Cmd::Emit { openapi, out } => cmd_emit(openapi, out).await,
+        Cmd::Emit { openapi, out, workflow } => cmd_emit(openapi, out, workflow).await,
         Cmd::Serve { skill, base_url } => cmd_serve(skill, base_url).await,
     }
 }
@@ -70,22 +73,43 @@ fn cmd_parse(openapi: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_emit(openapi: PathBuf, out: PathBuf) -> Result<()> {
+async fn cmd_emit(openapi: PathBuf, out: PathBuf, workflows: Vec<PathBuf>) -> Result<()> {
     let spec = parse_openapi(&openapi).context("parse openapi")?;
     std::fs::create_dir_all(&out).context("create out dir")?;
     let emitter = MarkdownEmitter::new();
+
+    // 解析所有 workflow（C 阶段）
+    let mut parsed_workflows = Vec::new();
+    for wf_path in &workflows {
+        let wf = parse_workflow(wf_path)
+            .with_context(|| format!("parse workflow {}", wf_path.display()))?;
+        // 校验 endpoint 引用
+        for step in &wf.steps {
+            if !spec.endpoints.contains_key(&step.endpoint) {
+                anyhow::bail!(
+                    "workflow `{}` 引用了不存在的 endpoint `{}`",
+                    wf.name,
+                    step.endpoint
+                );
+            }
+        }
+        parsed_workflows.push(wf);
+    }
+
     emitter
-        .emit(&spec, &out)
+        .emit(&spec, &parsed_workflows, &out)
         .await
         .context("emit markdown")?;
+
     // 缓存 IR 供 serve 使用
     let cache_dir = out.join(".x-cli");
     std::fs::create_dir_all(&cache_dir).context("create cache dir")?;
     let ir_json = serde_json::to_string_pretty(&spec)?;
     std::fs::write(cache_dir.join("ir.json"), ir_json).context("write ir.json")?;
     println!(
-        "✓ 解析 {} 个接口，写入 {}\n  业务域: {}",
+        "✓ 解析 {} 个接口、{} 个工作流，写入 {}\n  业务域: {}",
         spec.endpoints.len(),
+        parsed_workflows.len(),
         out.display(),
         spec.domains.len()
     );

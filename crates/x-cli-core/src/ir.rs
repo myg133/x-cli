@@ -171,3 +171,101 @@ pub enum SchemaKind {
     Scalar,
     Any,
 }
+
+// ─────────────── Workflow（C 阶段） ───────────────
+
+/// 一个多步工作流。
+///
+/// 步骤按数组顺序执行（显式步骤序列，agent 自己跑）。
+/// inputs 字段支持三种值：
+/// - `"$input.xxx"`：引用工作流外部输入
+/// - `"$steps.<name>.response.body.<path>"`：引用上一步响应
+/// - 其他字符串：原样作为静态值
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Workflow {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub inputs: Vec<WorkflowInput>,
+    pub steps: Vec<WorkflowStep>,
+}
+
+/// 工作流的外部输入参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowInput {
+    pub name: String,
+    pub r#type: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub default: Option<serde_json::Value>,
+}
+
+/// 工作流的一个步骤
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStep {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// endpoint id（来自 ApiSpec.endpoints）
+    pub endpoint: String,
+    #[serde(default)]
+    pub inputs: StepInputs,
+}
+
+/// 步骤的输入参数。所有 value 在 YAML 里都写成字符串，
+/// 运行时按 `$input.` / `$steps.` 前缀判断是引用还是静态值。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StepInputs {
+    #[serde(default)]
+    pub path_params: BTreeMap<String, String>,
+    #[serde(default)]
+    pub query: BTreeMap<String, String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub body: BTreeMap<String, String>,
+}
+
+/// 一个 input 引用（解析后的形态）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum InputRef {
+    /// 引用工作流外部输入
+    Input(String),
+    /// 引用上一步响应
+    StepOutput {
+        step: String,
+        path: Vec<String>,
+    },
+    /// 静态值
+    Static(String),
+}
+
+impl InputRef {
+    /// 从 YAML 字符串解析
+    pub fn parse(s: &str) -> Self {
+        if let Some(rest) = s.strip_prefix("$input.") {
+            return InputRef::Input(rest.to_string());
+        }
+        if let Some(rest) = s.strip_prefix("$steps.") {
+            // 格式：$steps.<name>.response.body.<dotted.path>
+            let mut parts = rest.split('.');
+            let step = parts.next().unwrap_or("").to_string();
+            let path: Vec<String> = parts.map(|s| s.to_string()).collect();
+            return InputRef::StepOutput { step, path };
+        }
+        InputRef::Static(s.to_string())
+    }
+
+    /// 渲染为 markdown 描述
+    pub fn describe(&self) -> String {
+        match self {
+            InputRef::Input(name) => format!("$input.{name}"),
+            InputRef::StepOutput { step, path } => {
+                format!("$steps.{}.{}", step, path.join("."))
+            }
+            InputRef::Static(v) => format!("`{v}`"),
+        }
+    }
+}

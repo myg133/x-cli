@@ -1,0 +1,30 @@
+name: 买宠物并查询订单
+description: |
+  演示 workflow.yaml 的两步流程：
+  1. 创建一只宠物（POST /pets）
+  2. 用返回的 id 查订单（GET /store/orders/{orderId}）
+  
+  真实场景里 step 2 应该用 orderId，但 petstore 演示用 petId，
+  核心是看 `$steps.<name>.response.body.<path>` 怎么串。
+inputs:
+  - name: petName
+    type: string
+    description: 给宠物起的名字
+    default: "fluffy"
+  - name: petId
+    type: string
+    description: 宠物 ID（占位用 — 实际场景会来自上游）
+steps:
+  - name: create_pet
+    description: 创建一只宠物
+    endpoint: pet__post__pets
+    inputs:
+      body:
+        name: "$input.petName"
+        tag: "$input.petId"
+  - name: get_pet
+    description: 用返回的 id 查宠物
+    endpoint: pet__get__pets_petId
+    inputs:
+      path_params:
+        petId: "$steps.create_pet.response.body.id"

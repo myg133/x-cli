@@ -16,13 +16,13 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::fs;
 use std::path::Path;
-use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, ParamLocation, ResolvedSchema, SchemaRef};
+use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, InputRef, ParamLocation, ResolvedSchema, SchemaRef, Workflow, WorkflowStep};
 
 /// SkillEmitter trait — 不同平台各自实现
 #[async_trait]
 pub trait SkillEmitter {
     /// 把 IR 渲染到 out_dir
-    async fn emit(&self, spec: &ApiSpec, out_dir: &Path) -> Result<()>;
+    async fn emit(&self, spec: &ApiSpec, workflows: &[Workflow], out_dir: &Path) -> Result<()>;
 }
 
 /// markdown emitter
@@ -42,12 +42,12 @@ impl Default for MarkdownEmitter {
 
 #[async_trait]
 impl SkillEmitter for MarkdownEmitter {
-    async fn emit(&self, spec: &ApiSpec, out_dir: &Path) -> Result<()> {
+    async fn emit(&self, spec: &ApiSpec, workflows: &[Workflow], out_dir: &Path) -> Result<()> {
         fs::create_dir_all(out_dir).context("create out_dir")?;
         fs::create_dir_all(out_dir.join("endpoints")).context("create endpoints dir")?;
 
         // SKILL.md 总索引
-        let index = render_index(spec);
+        let index = render_index(spec, workflows);
         fs::write(out_dir.join("SKILL.md"), index).context("write SKILL.md")?;
 
         // 每个 endpoint 一份
@@ -58,11 +58,25 @@ impl SkillEmitter for MarkdownEmitter {
                 .context("write endpoint md")?;
         }
 
+        // 每个 workflow 一份
+        if !workflows.is_empty() {
+            fs::create_dir_all(out_dir.join("workflows")).context("create workflows dir")?;
+            for wf in workflows {
+                let body = render_workflow(wf, spec);
+                let safe = sanitize_filename(&wf.name);
+                fs::write(
+                    out_dir.join("workflows").join(format!("{safe}.md")),
+                    body,
+                )
+                .context("write workflow md")?;
+            }
+        }
+
         Ok(())
     }
 }
 
-fn render_index(spec: &ApiSpec) -> String {
+fn render_index(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     let mut s = String::new();
     s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
     s.push_str(&format!("> 自动生成自 OpenAPI {}，由 x-cli 渲染。请勿手动修改。\n\n", spec.version));
@@ -101,6 +115,21 @@ fn render_index(spec: &ApiSpec) -> String {
                     safe = sanitize_filename(id),
                 ));
             }
+        }
+        s.push('\n');
+    }
+
+    // 工作流段（C 阶段）
+    if !workflows.is_empty() {
+        s.push_str("## 工作流\n\n");
+        s.push_str("工作流把多个接口串成多步任务，agent 按步骤顺序调用。\n\n");
+        for wf in workflows {
+            let safe = sanitize_filename(&wf.name);
+            s.push_str(&format!(
+                "- [`{}`](./workflows/{safe}.md) — {} 步\n",
+                wf.name,
+                wf.steps.len(),
+            ));
         }
         s.push('\n');
     }
@@ -371,6 +400,147 @@ fn schema_type_label(schema: &SchemaRef) -> String {
         }
         SchemaKind::Scalar => format!("`{}`", schema.name),
         SchemaKind::Any => "any".to_string(),
+    }
+}
+
+// ─────────────── Workflow 渲染（C 阶段） ───────────────
+
+fn render_workflow(wf: &Workflow, spec: &ApiSpec) -> String {
+    let mut s = String::new();
+    s.push_str(&format!("# `{}`（工作流）\n\n", wf.name));
+    if let Some(desc) = &wf.description {
+        s.push_str(&format!("{desc}\n\n"));
+    }
+
+    // inputs
+    if !wf.inputs.is_empty() {
+        s.push_str("## 输入参数\n\n");
+        s.push_str("| 名称 | 类型 | 必填 | 默认 | 说明 |\n");
+        s.push_str("|---|---|---|---|---|\n");
+        for input in &wf.inputs {
+            let required = if input.default.is_none() { "✅" } else { "—" };
+            let default = input
+                .default
+                .as_ref()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "—".to_string());
+            let desc = input.description.as_deref().unwrap_or("");
+            s.push_str(&format!(
+                "| `{}` | `{}` | {} | {} | {} |\n",
+                input.name, input.r#type, required, default, desc
+            ));
+        }
+        s.push('\n');
+    }
+
+    // 步骤
+    s.push_str(&format!("## 步骤（共 {} 步）\n\n", wf.steps.len()));
+    for (i, step) in wf.steps.iter().enumerate() {
+        s.push_str(&format!("### {}. `{}`\n\n", i + 1, step.name));
+        if let Some(desc) = &step.description {
+            s.push_str(&format!("> {desc}\n\n"));
+        }
+        s.push_str(&format!("- endpoint: [`{}`](../endpoints/{}.md)\n",
+            step.endpoint, sanitize_filename(&step.endpoint)));
+        // inputs 解析展示
+        render_step_inputs(&mut s, &step.inputs);
+        s.push('\n');
+    }
+
+    // agent 调用示例
+    s.push_str("## Agent 调用示例\n\n");
+    s.push_str("按步骤顺序执行，每步用上一步响应填下步 inputs。\n\n");
+    s.push_str("```python\n");
+    s.push_str("import json, subprocess\n\n");
+    s.push_str("def call(endpoint_id, path_params=None, query=None, headers=None, body=None):\n");
+    s.push_str("    req = {\n");
+    s.push_str("        \"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"call\",\n");
+    s.push_str("        \"params\": {\n");
+    s.push_str("            \"endpoint_id\": endpoint_id,\n");
+    s.push_str("            \"path_params\": path_params or {},\n");
+    s.push_str("            \"query\": query or {},\n");
+    s.push_str("            \"headers\": headers or {},\n");
+    s.push_str("            \"body\": body,\n");
+    s.push_str("        },\n");
+    s.push_str("    }\n");
+    s.push_str("    proc = subprocess.run(\n");
+    s.push_str("        [\"x\", \"serve\"],\n");
+    s.push_str("        f\"--skill {SKILL_DIR}\".split(),\n");
+    s.push_str("        input=json.dumps(req), capture_output=True, text=True,\n");
+    s.push_str("    )\n");
+    s.push_str("    return json.loads(proc.stdout.strip())[\"result\"]\n\n");
+    s.push_str("SKILL_DIR = \"./this-skill\"  # 改成本地 skill 目录\n\n");
+    // 给每个 step 写示例
+    for (i, step) in wf.steps.iter().enumerate() {
+        s.push_str(&format!("# Step {}: {}\n", i + 1, step.name));
+        s.push_str(&format!("resp_{} = call({:?}", step.name, step.endpoint));
+        // 给个 path_params 示例（不实际解析 $input，按字符串直接传）
+        if !step.inputs.path_params.is_empty() {
+            s.push_str(", path_params={");
+            for (k, v) in &step.inputs.path_params {
+                s.push_str(&format!("{:?}: {:?}, ", k, v));
+            }
+            s.push('}');
+        }
+        if !step.inputs.body.is_empty() {
+            s.push_str(", body={");
+            for (k, v) in &step.inputs.body {
+                s.push_str(&format!("{:?}: {:?}, ", k, v));
+            }
+            s.push('}');
+        }
+        s.push_str(")\n");
+        if i < wf.steps.len() - 1 {
+            s.push('\n');
+        }
+    }
+    s.push_str("```\n");
+
+    // 隐含要求：endpoint 必须存在于 spec（用注释提示）
+    for step in &wf.steps {
+        if !spec.endpoints.contains_key(&step.endpoint) {
+            s.push_str(&format!(
+                "\n> ⚠️ 警告：step `{}` 引用的 endpoint `{}` 不在当前 OpenAPI 文档里。\n",
+                step.name, step.endpoint
+            ));
+        }
+    }
+
+    s
+}
+
+fn render_step_inputs(s: &mut String, inputs: &x_cli_core::ir::StepInputs) {
+    let has_any = !inputs.path_params.is_empty()
+        || !inputs.query.is_empty()
+        || !inputs.headers.is_empty()
+        || !inputs.body.is_empty();
+    if !has_any {
+        return;
+    }
+    s.push_str("- inputs:\n");
+    if !inputs.path_params.is_empty() {
+        s.push_str("  - path_params:\n");
+        for (k, v) in &inputs.path_params {
+            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+        }
+    }
+    if !inputs.query.is_empty() {
+        s.push_str("  - query:\n");
+        for (k, v) in &inputs.query {
+            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+        }
+    }
+    if !inputs.headers.is_empty() {
+        s.push_str("  - headers:\n");
+        for (k, v) in &inputs.headers {
+            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+        }
+    }
+    if !inputs.body.is_empty() {
+        s.push_str("  - body:\n");
+        for (k, v) in &inputs.body {
+            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+        }
     }
 }
 

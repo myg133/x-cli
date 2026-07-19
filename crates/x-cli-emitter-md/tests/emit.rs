@@ -28,7 +28,7 @@ async fn emits_skill_index_with_calling_convention() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out).await.expect("emit");
 
     let skill_md = std::fs::read_to_string(out.join("SKILL.md")).expect("read SKILL.md");
 
@@ -51,7 +51,7 @@ async fn emits_endpoint_files() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out).await.expect("emit");
 
     // 5 个端点文件
     for id in [
@@ -71,7 +71,7 @@ async fn endpoint_md_contains_python_invocation_example() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__get__pets_petId.md"),
@@ -97,7 +97,7 @@ async fn endpoint_md_with_body_has_body_placeholder() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__post__pets.md"),
@@ -114,7 +114,7 @@ async fn httpbin_emit_succeeds() {
     let spec = parse_openapi_str(HTTPBIN).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit httpbin");
+    emitter.emit(&spec, &[], &out).await.expect("emit httpbin");
     assert!(out.join("SKILL.md").exists());
 }
 
@@ -125,7 +125,7 @@ async fn endpoint_with_request_body_renders_resolved_properties() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__post__pets.md"),
@@ -147,7 +147,7 @@ async fn response_schema_renders_too() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__get__pets_petId.md"),
@@ -196,7 +196,7 @@ components:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &out).await.expect("emit tree");
+    emitter.emit(&spec, &[], &out).await.expect("emit tree");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("tree__get__tree.md"),
@@ -208,4 +208,136 @@ components:
     // 数组元素的类型必须是 array<`Tree`>，递归不爆栈
     assert!(ep.contains("array<`Tree`>"), "should render array<Tree>");
     // 不应该无限递归（如果爆栈这个测试根本到不了这里）
+}
+
+// ─────────────── C 阶段：工作流渲染 ───────────────
+
+#[tokio::test]
+async fn emits_workflow_files() {
+    use x_cli_core::{parse_workflow_str, Workflow};
+
+    let spec = parse_openapi_str(PETSTORE).expect("parse petstore");
+    let workflow_yaml = r#"
+name: 买一只宠物
+description: |
+  1. 创建宠物
+  2. 读回来确认
+inputs:
+  - name: petId
+    type: string
+    description: 宠物 ID
+steps:
+  - name: create
+    endpoint: pet__post__pets
+    inputs:
+      body:
+        name: "fluffy"
+        tag: "$input.petId"
+  - name: read
+    endpoint: pet__get__pets_petId
+    inputs:
+      path_params:
+        petId: "$steps.create.response.body.id"
+"#;
+    let wf: Workflow = parse_workflow_str(workflow_yaml).expect("parse workflow");
+
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, std::slice::from_ref(&wf), &out)
+        .await
+        .expect("emit");
+
+    // workflows/ 目录 + 一份 md
+    let wf_dir = out.join("workflows");
+    assert!(wf_dir.exists(), "workflows dir should exist");
+    let files: Vec<_> = std::fs::read_dir(&wf_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(files.len(), 1, "expected 1 workflow file");
+
+    // SKILL.md 必须含工作流段
+    let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("skill");
+    assert!(skill.contains("## 工作流"));
+    assert!(skill.contains("买一只宠物"));
+}
+
+#[tokio::test]
+async fn workflow_md_includes_python_invocation() {
+    use x_cli_core::{parse_workflow_str, Workflow};
+
+    let spec = parse_openapi_str(PETSTORE).expect("parse petstore");
+    let wf: Workflow = parse_workflow_str(
+        r#"
+name: create-and-read
+steps:
+  - name: create
+    endpoint: pet__post__pets
+    inputs:
+      body:
+        name: "fluffy"
+  - name: read
+    endpoint: pet__get__pets_petId
+    inputs:
+      path_params:
+        petId: "$steps.create.response.body.id"
+"#,
+    )
+    .expect("parse");
+
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, std::slice::from_ref(&wf), &out)
+        .await
+        .expect("emit");
+
+    let body = std::fs::read_to_string(out.join("workflows").join("create-and-read.md"))
+        .expect("read wf md");
+
+    // 必须含两个 step 的 Python 调用
+    assert!(body.contains("def call("));
+    assert!(body.contains("create"));
+    assert!(body.contains("read"));
+    // inputs 引用要展开
+    assert!(body.contains("$input.") || body.contains("$steps."));
+    // 必须含 endpoint 引用
+    assert!(body.contains("pet__post__pets"));
+    assert!(body.contains("pet__get__pets_petId"));
+}
+
+#[tokio::test]
+async fn workflow_step_describes_input_refs() {
+    use x_cli_core::parse_workflow_str;
+
+    let _spec = parse_openapi_str(PETSTORE).expect("parse");
+    let wf = parse_workflow_str(
+        r#"
+name: demo
+steps:
+  - name: only
+    endpoint: pet__get__pets_petId
+    inputs:
+      path_params:
+        petId: "$input.petId"
+"#,
+    )
+    .expect("parse");
+
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&_spec, std::slice::from_ref(&wf), &out)
+        .await
+        .expect("emit");
+
+    let body = std::fs::read_to_string(out.join("workflows").join("demo.md"))
+        .expect("read");
+
+    // inputs 表格或 bullet 必须显式描述 $input.petId 引用
+    assert!(
+        body.contains("$input.petId") || body.contains("petId ← $input.petId"),
+        "should describe $input.petId reference; body:\n{body}"
+    );
 }
