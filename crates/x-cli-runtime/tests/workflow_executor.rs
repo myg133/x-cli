@@ -113,12 +113,22 @@ async fn run_rpc(
     workflows: BTreeMap<String, Arc<Workflow>>,
     request: &str,
 ) -> Vec<String> {
+    let caller = HttpCaller::new(AuthProfile::default()).expect("caller");
+    serve_then(spec, workflows, request, caller).await
+}
+
+/// 自定义 caller（用于测试 auth header 注入）
+async fn serve_then(
+    spec: Arc<ApiSpec>,
+    workflows: BTreeMap<String, Arc<Workflow>>,
+    request: &str,
+    caller: HttpCaller,
+) -> Vec<String> {
     let (mut client_write, server_read) = duplex(4096);
     let (server_write, mut client_read) = duplex(4096);
 
     let base_url = spec.base_url.clone();
 
-    let caller = HttpCaller::new(AuthProfile::default()).expect("caller");
     let serve_task = tokio::spawn(async move {
         serve(server_read, server_write, spec, workflows, base_url, caller).await;
     });
@@ -354,4 +364,245 @@ steps:
     let steps = result.get("steps").and_then(|s| s.as_array()).expect("steps");
     assert_eq!(steps[0].get("name").and_then(|n| n.as_str()), Some("first"));
     assert_eq!(steps[1].get("name").and_then(|n| n.as_str()), Some("second"));
+}
+
+// ─────────────── H 阶段：认证 header 注入 ───────────────
+
+use x_cli_runtime::build_auth_profile;
+
+#[tokio::test]
+async fn auth_bearer_token_is_injected_in_http_requests() {
+    // spawn_auth_server：要求 Authorization: Bearer expected-token，否则 401
+    // body 包含回显的 auth header 值
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr: SocketAddr = listener.local_addr().expect("local_addr");
+    let url = format!("http://{}", addr);
+    let expected = "expected-token-xyz";
+
+    let expected_clone = expected.to_string();
+    let handle = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = match listener.accept().await {
+                Ok(p) => p,
+                Err(_) => break,
+            };
+            let expected = expected_clone.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let n = match socket.read(&mut buf).await {
+                    Ok(n) => n,
+                    Err(_) => return,
+                };
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let auth_line = req
+                    .lines()
+                    .find(|l| l.to_lowercase().starts_with("authorization:"))
+                    .unwrap_or("");
+                let status = if auth_line.contains(&expected) {
+                    "200"
+                } else {
+                    "401"
+                };
+                let body = format!(
+                    r#"{{"received_auth":"{}"}}"#,
+                    auth_line.replace("Authorization: ", "").replace("authorization: ", "")
+                );
+                let resp = format!(
+                    "HTTP/1.1 {} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status,
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+
+    let wf = workflow(
+        r#"
+name: auth-test
+steps:
+  - name: call
+    endpoint: echo__get__anything_path
+"#,
+    );
+    let mut wfs = BTreeMap::new();
+    wfs.insert(wf.name.clone(), wf.clone());
+
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{{"workflow":{:?},"inputs":{{}}}}}}"#,
+        wf.name
+    );
+
+    // 1. 没 token：期待 401（executor 视 4xx 为 step failed，返回 error）
+    let auth = build_auth_profile(&[], &[]).expect("build");
+    let caller = HttpCaller::new(auth).expect("caller");
+    let resp = serve_then(
+        spec_with_base(&url),
+        wfs.clone(),
+        &req,
+        caller,
+    )
+    .await;
+    let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
+    let error = v.get("error").expect("401 without token should produce error");
+    let code = error.get("code").and_then(|c| c.as_i64()).expect("code");
+    assert_eq!(code, -32011, "should be WORKFLOW_STEP_FAILED");
+    let data_status = error
+        .get("data")
+        .and_then(|d| d.get("status"))
+        .and_then(|s| s.as_u64())
+        .expect("data.status");
+    assert_eq!(data_status, 401, "server reported 401");
+
+    // 2. 有正确 token：期待 200
+    let auth = build_auth_profile(&[expected.to_string()], &[]).expect("build");
+    let caller = HttpCaller::new(auth).expect("caller");
+    let resp = serve_then(spec_with_base(&url), wfs, &req, caller).await;
+    let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
+    let steps = v
+        .get("result")
+        .and_then(|r| r.get("steps"))
+        .and_then(|s| s.as_array())
+        .expect("steps");
+    let first_status = steps[0]
+        .get("status")
+        .and_then(|s| s.as_u64())
+        .expect("status");
+    assert_eq!(first_status, 200, "with bearer should get 200");
+    // body 里有 auth 回显
+    let body = steps[0].get("body").and_then(|b| b.get("received_auth")).and_then(|s| s.as_str()).expect("body.received_auth");
+    assert!(body.contains(expected), "body should echo auth header: {body}");
+}
+
+#[tokio::test]
+async fn wrong_bearer_token_returns_401() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr: SocketAddr = listener.local_addr().expect("local_addr");
+    let url = format!("http://{}", addr);
+    let handle = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = match listener.accept().await {
+                Ok(p) => p,
+                Err(_) => break,
+            };
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let body = r#"{"ok":true}"#;
+                let resp = format!(
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+
+    let wf = workflow(
+        r#"
+name: auth-test
+steps:
+  - name: call
+    endpoint: echo__get__anything_path
+"#,
+    );
+    let mut wfs = BTreeMap::new();
+    wfs.insert(wf.name.clone(), wf.clone());
+
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{{"workflow":{:?},"inputs":{{}}}}}}"#,
+        wf.name
+    );
+
+    let auth = build_auth_profile(&["wrong-token".to_string()], &[]).expect("build");
+    let caller = HttpCaller::new(auth).expect("caller");
+    let resp = serve_then(spec_with_base(&url), wfs, &req, caller).await;
+    let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
+    // 4xx 视作 step 失败
+    assert!(
+        v.get("error").is_some(),
+        "wrong token should produce error response"
+    );
+    let code = v.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()).expect("error code");
+    assert_eq!(code, -32011, "should be WORKFLOW_STEP_FAILED");
+}
+
+#[tokio::test]
+async fn custom_header_is_sent() {
+    // 验证 --auth-header "X-API-Key=xxx" 也注入
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr: SocketAddr = listener.local_addr().expect("local_addr");
+    let url = format!("http://{}", addr);
+    let api_key = "secret-key-123";
+    let expected_header = format!("X-API-Key: {api_key}");
+    let expected_clone = expected_header.clone();
+    let handle = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = match listener.accept().await {
+                Ok(p) => p,
+                Err(_) => break,
+            };
+            let expected = expected_clone.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                // HTTP header name case-insensitive: lowercase compare
+                let req_lower = req.to_lowercase();
+                let expected_lower = expected.to_lowercase();
+                let body = if req_lower.contains(&expected_lower) {
+                    r#"{"ok":true}"#
+                } else {
+                    r#"{"error":"missing key"}"#
+                };
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+
+    let wf = workflow(
+        r#"
+name: custom-header-test
+steps:
+  - name: call
+    endpoint: echo__get__anything_path
+"#,
+    );
+    let mut wfs = BTreeMap::new();
+    wfs.insert(wf.name.clone(), wf.clone());
+
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{{"workflow":{:?},"inputs":{{}}}}}}"#,
+        wf.name
+    );
+
+    let auth = build_auth_profile(
+        &[],
+        &[format!("X-API-Key={api_key}"), "X-Tenant=acme".to_string()],
+    )
+    .expect("build");
+    let caller = HttpCaller::new(auth).expect("caller");
+    let resp = serve_then(spec_with_base(&url), wfs, &req, caller).await;
+    let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
+    let steps = v
+        .get("result")
+        .and_then(|r| r.get("steps"))
+        .and_then(|s| s.as_array())
+        .expect("steps");
+    // body 是 server 回的 {"ok":true}
+    let body = &steps[0].get("body");
+    assert_eq!(
+        body.and_then(|b| b.get("ok")).and_then(|o| o.as_bool()),
+        Some(true),
+        "custom header X-API-Key should be sent: {body:?}"
+    );
 }

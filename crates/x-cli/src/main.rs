@@ -14,7 +14,7 @@ use tracing_subscriber::EnvFilter;
 use x_cli_core::ir::{ApiSpec, Workflow};
 use x_cli_core::{parse_openapi, parse_workflow};
 use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter, SkillFormat};
-use x_cli_runtime::{serve_stdio, AuthProfile, HttpCaller};
+use x_cli_runtime::{build_auth_profile, serve_stdio, AuthProfile, HttpCaller};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum SkillFormatArg {
@@ -69,6 +69,13 @@ enum Cmd {
         /// 覆盖 base URL（默认用 IR 里的）
         #[arg(long)]
         base_url: Option<String>,
+        /// Bearer token：自动加 Authorization: Bearer <TOKEN>
+        #[arg(long, value_name = "TOKEN")]
+        auth_bearer: Vec<String>,
+        /// 自定义请求头：KEY=VALUE 格式，可多次
+        /// 例：--auth-header "X-API-Key=xxx" --auth-header "X-Tenant=acme"
+        #[arg(long, value_name = "KEY=VALUE")]
+        auth_header: Vec<String>,
     },
 }
 
@@ -86,7 +93,12 @@ async fn main() -> Result<()> {
         Cmd::Emit { openapi, out, workflow, format } => {
             cmd_emit(openapi, out, workflow, format.into()).await
         }
-        Cmd::Serve { skill, base_url } => cmd_serve(skill, base_url).await,
+        Cmd::Serve {
+            skill,
+            base_url,
+            auth_bearer,
+            auth_header,
+        } => cmd_serve(skill, base_url, auth_bearer, auth_header).await,
     }
 }
 
@@ -152,7 +164,12 @@ fn format_label(f: SkillFormat) -> &'static str {
     }
 }
 
-async fn cmd_serve(skill: PathBuf, base_url_override: Option<String>) -> Result<()> {
+async fn cmd_serve(
+    skill: PathBuf,
+    base_url_override: Option<String>,
+    auth_bearer: Vec<String>,
+    auth_header: Vec<String>,
+) -> Result<()> {
     let ir_path = skill.join(".x-cli").join("ir.json");
     let raw = std::fs::read_to_string(&ir_path)
         .with_context(|| format!("read {}", ir_path.display()))?;
@@ -165,7 +182,11 @@ async fn cmd_serve(skill: PathBuf, base_url_override: Option<String>) -> Result<
     }
 
     let base_url = base_url_override.or(spec.base_url.clone());
-    let caller = HttpCaller::new(AuthProfile::default()).context("build http caller")?;
+    let auth = build_auth_profile(&auth_bearer, &auth_header)?;
+    let caller = HttpCaller::new(auth).context("build http caller")?;
+    if !auth_bearer.is_empty() || !auth_header.is_empty() {
+        println!("✓ 注入 {} 个认证 header", auth_bearer.len() + auth_header.len());
+    }
     serve_stdio(Arc::new(spec), workflows, base_url, caller).await;
     Ok(())
 }
