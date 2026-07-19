@@ -341,3 +341,159 @@ steps:
         "should describe $input.petId reference; body:\n{body}"
     );
 }
+
+// ─────────────── D 阶段：响应合并 + tag sanitize ───────────────
+
+#[tokio::test]
+async fn identical_response_schemas_get_merged_in_markdown() {
+    // 多个响应 schema 相同（如 4xx/5xx 错误），渲染时合并成一行
+    let yaml = r#"
+openapi: 3.1.0
+info:
+  title: Errors
+  version: 1.0.0
+paths:
+  /things:
+    get:
+      tags: [things]
+      operationId: list
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '500':
+          description: Fatal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+"#;
+    let spec = parse_openapi_str(yaml).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter.emit(&spec, &[], &out).await.expect("emit");
+
+    let body = std::fs::read_to_string(out.join("endpoints").join("things__get__things.md"))
+        .expect("read");
+
+    // 状态码行：400, 401, 500 合并成一行
+    assert!(
+        body.contains("**400, 401, 500**"),
+        "expected merged status line; body:\n{body}"
+    );
+    // 不应该分别渲染 400/401/500
+    assert!(
+        !body.contains("**400** `application/json`"),
+        "should not render 400 alone"
+    );
+    // schema 标题也合并
+    assert!(
+        body.contains("### 响应 400, 401, 500 schema"),
+        "expected merged schema heading"
+    );
+    // 200 独立
+    assert!(body.contains("**200**"));
+}
+
+#[tokio::test]
+async fn merge_statuses_uses_range_when_continuous() {
+    // 直接测 merge_statuses 函数：3 个连续状态码合并成 200-202
+    // 通过观察一个内部连续的响应模式
+    let yaml = r#"
+openapi: 3.1.0
+info:
+  title: Range
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      tags: [x]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { type: object }
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { type: object }
+        '202':
+          description: accepted
+          content:
+            application/json:
+              schema: { type: object }
+"#;
+    let spec = parse_openapi_str(yaml).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter.emit(&spec, &[], &out).await.expect("emit");
+
+    let body = std::fs::read_to_string(out.join("endpoints").join("x__get__x.md"))
+        .expect("read");
+
+    // 200, 201, 202 三个 schema 一样 → 应该合并成 200-202
+    assert!(
+        body.contains("**200-202**"),
+        "expected range merge '200-202'; body:\n{body}"
+    );
+}
+
+#[tokio::test]
+async fn tag_with_space_is_url_encoded_in_links() {
+    // Superset-style: tag 名字含空格，markdown 链接里要 URL 编码
+    let yaml = r#"
+openapi: 3.1.0
+info:
+  title: TagTest
+  version: 1.0.0
+paths:
+  /things:
+    get:
+      tags: ["My Tag"]
+      operationId: list
+      responses:
+        '200':
+          description: ok
+"#;
+    let spec = parse_openapi_str(yaml).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter.emit(&spec, &[], &out).await.expect("emit");
+
+    let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("read skill");
+    // 显示用真名（保留空格）
+    assert!(skill.contains("`My Tag`"), "display name should be `My Tag`");
+    // 链接里要 URL 编码（%20）
+    assert!(
+        skill.contains("My%20Tag"),
+        "link should URL-encode space as %20; got:\n{skill}"
+    );
+    // 文件名还是带空格（os 兼容的，不动）
+    let file_path = out.join("endpoints").join("My Tag__get__things.md");
+    assert!(file_path.exists(), "actual file should still have space in name");
+}

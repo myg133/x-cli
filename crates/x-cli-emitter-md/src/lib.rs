@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::fs;
 use std::path::Path;
-use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, InputRef, ParamLocation, ResolvedSchema, SchemaRef, Workflow, WorkflowStep};
+use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, InputRef, ParamLocation, ResolvedSchema, Response, SchemaRef, Workflow, WorkflowStep};
 
 /// SkillEmitter trait — 不同平台各自实现
 #[async_trait]
@@ -112,7 +112,7 @@ fn render_index(spec: &ApiSpec, workflows: &[Workflow]) -> String {
                         .as_deref()
                         .map(|x| format!(" — {x}"))
                         .unwrap_or_default(),
-                    safe = sanitize_filename(id),
+                    safe = url_encode_path(&sanitize_filename(id)),
                 ));
             }
         }
@@ -124,7 +124,7 @@ fn render_index(spec: &ApiSpec, workflows: &[Workflow]) -> String {
         s.push_str("## 工作流\n\n");
         s.push_str("工作流把多个接口串成多步任务，agent 按步骤顺序调用。\n\n");
         for wf in workflows {
-            let safe = sanitize_filename(&wf.name);
+            let safe = url_encode_path(&sanitize_filename(&wf.name));
             s.push_str(&format!(
                 "- [`{}`](./workflows/{safe}.md) — {} 步\n",
                 wf.name,
@@ -194,23 +194,42 @@ fn render_endpoint(ep: &Endpoint, _spec: &ApiSpec) -> String {
     // 响应
     if !ep.responses.is_empty() {
         s.push_str("## 响应\n\n");
+        // 把响应按 schema signature 分组，相同 signature 的状态码合并
+        // signature = (content_type, schema_name, schema_json) 元组的字符串形式
+        let mut groups: Vec<(String, Vec<&Response>)> = Vec::new();
         for r in &ep.responses {
+            let sig = response_signature(r);
+            if let Some(group) = groups.iter_mut().find(|(s, _)| s == &sig) {
+                group.1.push(r);
+            } else {
+                groups.push((sig, vec![r]));
+            }
+        }
+
+        // 第一段：状态码行（合并同 signature 的）
+        for (_, rs) in &groups {
+            let statuses = merge_statuses(rs);
+            // 用第一个 response 的描述（同 signature 描述应该一样）
+            let first = rs[0];
             s.push_str(&format!(
-                "- **{}**{} {}\n",
-                r.status,
-                r.content_type
+                "- **{statuses}**{} {}\n",
+                first
+                    .content_type
                     .as_deref()
                     .map(|c| format!(" `{}`", c))
                     .unwrap_or_default(),
-                r.description.as_deref().unwrap_or(""),
+                first.description.as_deref().unwrap_or(""),
             ));
         }
         s.push('\n');
-        // 把每个响应的 schema 树也渲染出来
-        for r in &ep.responses {
-            if let Some(schema) = &r.schema {
-                if let Some(name) = Some(schema.name.as_str()).filter(|n| !n.is_empty() && *n != "any") {
-                    s.push_str(&format!("\n### 响应 {} schema `{}`\n\n", r.status, name));
+
+        // 第二段：每个 signature 一份 schema 树
+        for (_, rs) in &groups {
+            let first = rs[0];
+            if let Some(schema) = &first.schema {
+                if !schema.name.is_empty() && schema.name != "any" {
+                    let statuses = merge_statuses(rs);
+                    s.push_str(&format!("\n### 响应 {statuses} schema `{}`\n\n", schema.name));
                     s.push_str(&render_resolved_schema_block(schema, 0));
                 }
             }
@@ -286,6 +305,77 @@ fn render_endpoint(ep: &Endpoint, _spec: &ApiSpec) -> String {
 
 fn sanitize_filename(s: &str) -> String {
     s.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+}
+
+/// 路径用 sanitize：空格 → '-', 文件系统不安全字符 → '_'。
+/// 区别于 sanitize_filename：路径里 '-' 比 '_' 视觉更友好，
+/// 但 '-' 不能作为文件名起始（在 shell 命令里可能误判为 flag），所以文件仍用 _。
+fn sanitize_path(s: &str) -> String {
+    s.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+        .replace(' ', "-")
+}
+
+/// URL 编码一段路径，保留 `/` 不变（路径分隔符）。
+/// 用于 markdown 链接里把含空格的 endpoint / domain 名字转成 URL-safe 形式，
+/// 让各种 agent 平台都能正确跳转。
+fn url_encode_path(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '/') {
+            out.push(c);
+        } else {
+            for b in c.to_string().as_bytes() {
+                out.push_str(&format!("%{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
+/// 计算响应的"schema signature"：相同 signature 的响应会被合并显示。
+/// 当前用 (content_type, schema_name, schema_json_str) 三元组。
+fn response_signature(r: &Response) -> String {
+    let ct = r.content_type.as_deref().unwrap_or("");
+    let (name, json) = match &r.schema {
+        Some(s) => (
+            s.name.as_str(),
+            serde_json::to_string(&s.json_schema).unwrap_or_default(),
+        ),
+        None => ("", String::new()),
+    };
+    format!("{ct}|{name}|{json}")
+}
+
+/// 把一组状态码合并成逗号分隔的字符串。连续状态码用 `-` 简写。
+/// 例：[200, 201, 400, 401, 500] → "200, 201, 400, 401, 500"
+///     [200, 201, 202] → "200-202"
+fn merge_statuses(rs: &[&Response]) -> String {
+    let mut codes: Vec<u16> = rs.iter().map(|r| r.status).collect();
+    codes.sort();
+    codes.dedup();
+    // 合并连续区间
+    let mut out = String::new();
+    let mut i = 0;
+    while i < codes.len() {
+        let start = codes[i];
+        let mut end = start;
+        while i + 1 < codes.len() && codes[i + 1] == end + 1 {
+            i += 1;
+            end = codes[i];
+        }
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        if start == end {
+            out.push_str(&start.to_string());
+        } else if end - start == 1 {
+            out.push_str(&format!("{start}, {end}"));
+        } else {
+            out.push_str(&format!("{start}-{end}"));
+        }
+        i += 1;
+    }
+    out
 }
 
 /// 渲染 ResolvedSchema 树（B 阶段）
@@ -441,7 +531,7 @@ fn render_workflow(wf: &Workflow, spec: &ApiSpec) -> String {
             s.push_str(&format!("> {desc}\n\n"));
         }
         s.push_str(&format!("- endpoint: [`{}`](../endpoints/{}.md)\n",
-            step.endpoint, sanitize_filename(&step.endpoint)));
+            step.endpoint, url_encode_path(&sanitize_filename(&step.endpoint))));
         // inputs 解析展示
         render_step_inputs(&mut s, &step.inputs);
         s.push('\n');
