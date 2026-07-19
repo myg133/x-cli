@@ -117,3 +117,81 @@ steps:
     let s: &StepInputs = &wf.steps[0].inputs;
     assert!(s.path_params.is_empty());
 }
+
+// ─────────────── F 阶段：depends_on + DAG ───────────────
+
+#[test]
+fn depends_on_parses_when_provided() {
+    let yaml = r#"
+name: with-deps
+steps:
+  - name: a
+    endpoint: x__get__x
+  - name: b
+    endpoint: y__get__y
+    depends_on: [a]
+"#;
+    let wf = parse_workflow_str(yaml).expect("parse");
+    assert!(wf.steps[0].depends_on.is_empty());
+    assert_eq!(wf.steps[1].depends_on, vec!["a".to_string()]);
+}
+
+#[test]
+fn depends_on_unknown_step_rejected() {
+    let yaml = r#"
+name: bad
+steps:
+  - name: a
+    endpoint: x__get__x
+    depends_on: [nonexistent]
+"#;
+    let err = parse_workflow_str(yaml).expect_err("should fail");
+    assert!(err.to_string().contains("unknown step"));
+}
+
+#[test]
+fn depends_on_self_rejected() {
+    let yaml = r#"
+name: self
+steps:
+  - name: a
+    endpoint: x__get__x
+    depends_on: [a]
+"#;
+    let err = parse_workflow_str(yaml).expect_err("should fail");
+    assert!(err.to_string().contains("depends on itself"));
+}
+
+#[test]
+fn cycle_in_depends_on_rejected() {
+    // a → b → a 环
+    let yaml = r#"
+name: cycle
+steps:
+  - name: a
+    endpoint: x__get__x
+    depends_on: [b]
+  - name: b
+    endpoint: y__get__y
+    depends_on: [a]
+"#;
+    let err = parse_workflow_str(yaml).expect_err("should fail");
+    assert!(err.to_string().contains("cycle"));
+}
+
+#[test]
+fn no_depends_on_keeps_array_order_implicitly() {
+    // 无 depends_on 也能引用前一步输出（隐式按数组顺序）
+    let yaml = r#"
+name: implicit
+steps:
+  - name: a
+    endpoint: x__get__x
+  - name: b
+    endpoint: y__get__y
+    inputs:
+      path_params:
+        id: "$steps.a.response.body.id"
+"#;
+    parse_workflow_str(yaml).expect("should parse (implicit order)");
+}

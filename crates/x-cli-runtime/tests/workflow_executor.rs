@@ -271,3 +271,87 @@ steps:
     );
     assert!(resp[0].contains("required_field"));
 }
+
+// ─────────────── F 阶段：DAG 拓扑执行 ───────────────
+
+#[tokio::test]
+async fn workflow_runs_in_topological_order_when_depends_on_specified() {
+    // 数组顺序：read → create（"违反" 依赖）
+    // depends_on：create → read
+    // 拓扑序应该是 create → read
+    let (base, _handle) = spawn_echo_server().await;
+    let wf = workflow(
+        r#"
+name: topo-demo
+steps:
+  - name: read
+    endpoint: echo__get__anything_path
+    inputs:
+      path_params:
+        path: "second"
+    depends_on: [create]
+  - name: create
+    endpoint: echo__get__anything_path
+    inputs:
+      path_params:
+        path: "first"
+"#,
+    );
+    let mut wfs = BTreeMap::new();
+    wfs.insert(wf.name.clone(), wf.clone());
+
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{{"workflow":{:?},"inputs":{{}}}}}}"#,
+        wf.name
+    );
+    let resp = run_rpc(spec_with_base(&base), wfs, &req).await;
+    let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
+    let result = v.get("result").expect("result");
+    let steps = result.get("steps").and_then(|s| s.as_array()).expect("steps");
+
+    // 拓扑序：create (无依赖) 先，read 后
+    assert_eq!(steps[0].get("name").and_then(|n| n.as_str()), Some("create"));
+    assert_eq!(steps[1].get("name").and_then(|n| n.as_str()), Some("read"));
+
+    // 第一个 step 的 url 含 "first"
+    let first_url = steps[0]
+        .get("body")
+        .and_then(|b| b.get("url"))
+        .and_then(|u| u.as_str())
+        .expect("url");
+    assert!(first_url.contains("first"), "first step should be `create` (path=first), got: {first_url}");
+}
+
+#[tokio::test]
+async fn workflow_runs_in_array_order_when_no_depends_on() {
+    // 没有 depends_on → 数组顺序（向后兼容）
+    let (base, _handle) = spawn_echo_server().await;
+    let wf = workflow(
+        r#"
+name: array-order
+steps:
+  - name: first
+    endpoint: echo__get__anything_path
+    inputs:
+      path_params:
+        path: "1"
+  - name: second
+    endpoint: echo__get__anything_path
+    inputs:
+      path_params:
+        path: "2"
+"#,
+    );
+    let mut wfs = BTreeMap::new();
+    wfs.insert(wf.name.clone(), wf.clone());
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{{"workflow":{:?},"inputs":{{}}}}}}"#,
+        wf.name
+    );
+    let resp = run_rpc(spec_with_base(&base), wfs, &req).await;
+    let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
+    let result = v.get("result").expect("result");
+    let steps = result.get("steps").and_then(|s| s.as_array()).expect("steps");
+    assert_eq!(steps[0].get("name").and_then(|n| n.as_str()), Some("first"));
+    assert_eq!(steps[1].get("name").and_then(|n| n.as_str()), Some("second"));
+}

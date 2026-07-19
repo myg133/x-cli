@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tracing::warn;
-use x_cli_core::ir::{ApiSpec, InputRef, StepInputs, Workflow};
+use x_cli_core::ir::{ApiSpec, InputRef, StepInputs, Workflow, WorkflowStep};
 use x_cli_core::protocol::{
     error_code, RpcError, WorkflowRunResult, WorkflowStepResult,
 };
@@ -59,10 +59,13 @@ impl WorkflowExecutor {
         // 校验外部 inputs
         let input_obj = inputs.as_object().cloned().unwrap_or_default();
 
+        // 决定执行顺序：默认数组顺序；任何 step 有 depends_on 走拓扑序
+        let order = execution_order(&workflow);
+
         let mut step_outputs: HashMap<String, Value> = HashMap::new();
         let mut results: Vec<WorkflowStepResult> = Vec::new();
 
-        for step in &workflow.steps {
+        for step in order {
             // 解析 step 的 inputs
             let call_params = match self.build_call_params(&step.inputs, &input_obj, &step_outputs) {
                 Ok(p) => p,
@@ -237,4 +240,61 @@ fn lookup_path(root: &Value, path: &[String]) -> Option<Value> {
         cur = cur.get(p.as_str())?;
     }
     Some(cur.clone())
+}
+
+/// 决定 step 执行顺序：
+/// - 如果所有 step.depends_on 都是空，按数组顺序
+/// - 否则按 Kahn's 拓扑排序（稳定：同层按数组位置）
+fn execution_order(workflow: &Workflow) -> Vec<&WorkflowStep> {
+    let has_deps = workflow.steps.iter().any(|s| !s.depends_on.is_empty());
+    if !has_deps {
+        return workflow.steps.iter().collect();
+    }
+
+    use std::collections::{BTreeMap, HashMap};
+    // 计算每个 step 的 in-degree
+    let mut in_degree: HashMap<&str, usize> = HashMap::new();
+    let name_to_idx: BTreeMap<&str, usize> = workflow
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.name.as_str(), i))
+        .collect();
+    for step in &workflow.steps {
+        in_degree.insert(step.name.as_str(), step.depends_on.len());
+    }
+
+    // 拓扑序
+    let mut ready: Vec<&str> = in_degree
+        .iter()
+        .filter(|(_, d)| **d == 0)
+        .map(|(n, _)| *n)
+        .collect();
+    // 稳定：按数组位置
+    ready.sort_by_key(|n| name_to_idx.get(n).copied().unwrap_or(usize::MAX));
+
+    let mut order: Vec<&WorkflowStep> = Vec::with_capacity(workflow.steps.len());
+    while let Some(name) = ready.pop() {
+        let step = workflow
+            .steps
+            .iter()
+            .find(|s| s.name == name)
+            .expect("step exists");
+        order.push(step);
+
+        // 找依赖了 `name` 的 step，in_degree -1
+        for s in &workflow.steps {
+            if s.depends_on.iter().any(|d| d == name) {
+                if let Some(d) = in_degree.get_mut(s.name.as_str()) {
+                    *d -= 1;
+                    if *d == 0 {
+                        ready.push(s.name.as_str());
+                    }
+                }
+            }
+        }
+        ready.sort_by_key(|n| name_to_idx.get(n).copied().unwrap_or(usize::MAX));
+    }
+
+    order
 }

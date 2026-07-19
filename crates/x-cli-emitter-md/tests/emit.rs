@@ -654,3 +654,39 @@ steps:
         .collect();
     assert!(names.contains(&"workflow.create-and-read"), "workflow tool name: {names:?}");
 }
+
+// ─────────────── F 阶段：depends_on 渲染 ───────────────
+
+#[tokio::test]
+async fn workflow_md_renders_depends_on_field() {
+    use x_cli_core::parse_workflow_str;
+
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let wf = parse_workflow_str(
+        r#"
+name: with-deps
+steps:
+  - name: first
+    endpoint: pet__get__pets
+  - name: second
+    endpoint: pet__get__pets_petId
+    depends_on: [first]
+"#,
+    )
+    .expect("parse");
+
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
+
+    let body = std::fs::read_to_string(out.join("workflows").join("with-deps.md"))
+        .expect("read");
+
+    // 第一个 step 无依赖
+    assert!(body.contains("depends_on: —"), "first step should have no deps marker");
+    // 第二个 step 有依赖
+    assert!(body.contains("depends_on: first"), "second step should show dep on 'first'");
+}

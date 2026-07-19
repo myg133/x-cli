@@ -210,6 +210,11 @@ pub struct WorkflowStep {
     pub description: Option<String>,
     /// endpoint id（来自 ApiSpec.endpoints）
     pub endpoint: String,
+    /// 显式依赖：此 step 执行前必须先完成的 step 名字列表。
+    /// 不写则按数组顺序隐式依赖前一个 step。
+    /// 一旦有任何 step 写了 depends_on，所有 step 都按拓扑序执行。
+    #[serde(default)]
+    pub depends_on: Vec<String>,
     #[serde(default)]
     pub inputs: StepInputs,
 }

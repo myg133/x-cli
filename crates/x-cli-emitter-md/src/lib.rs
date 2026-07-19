@@ -839,6 +839,12 @@ fn render_workflow(wf: &Workflow, spec: &ApiSpec) -> String {
         }
         s.push_str(&format!("- endpoint: [`{}`](../endpoints/{}.md)\n",
             step.endpoint, url_encode_path(&sanitize_filename(&step.endpoint))));
+        // depends_on
+        if step.depends_on.is_empty() {
+            s.push_str("- depends_on: —\n");
+        } else {
+            s.push_str(&format!("- depends_on: {}\n", step.depends_on.join(", ")));
+        }
         // inputs 解析展示
         render_step_inputs(&mut s, &step.inputs);
         s.push('\n');
