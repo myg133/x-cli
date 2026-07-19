@@ -14,15 +14,34 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use serde_json::json;
 use std::fs;
 use std::path::Path;
 use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, InputRef, ParamLocation, ResolvedSchema, Response, SchemaRef, Workflow, WorkflowStep};
+
+/// Skill 输出格式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SkillFormat {
+    /// 默认：每个 endpoint / workflow 一份 markdown + SKILL.md 索引（适合人读、agent 参考）
+    #[default]
+    Markdown,
+    /// Anthropic 风格：单 SKILL.md 含 frontmatter（描述何时用），不带分文件
+    Anthropic,
+    /// OpenAI function calling：单个 functions.json，含 tools 数组
+    OpenAITools,
+}
 
 /// SkillEmitter trait — 不同平台各自实现
 #[async_trait]
 pub trait SkillEmitter {
     /// 把 IR 渲染到 out_dir
-    async fn emit(&self, spec: &ApiSpec, workflows: &[Workflow], out_dir: &Path) -> Result<()>;
+    async fn emit(
+        &self,
+        spec: &ApiSpec,
+        workflows: &[Workflow],
+        out_dir: &Path,
+        format: SkillFormat,
+    ) -> Result<()>;
 }
 
 /// markdown emitter
@@ -42,8 +61,31 @@ impl Default for MarkdownEmitter {
 
 #[async_trait]
 impl SkillEmitter for MarkdownEmitter {
-    async fn emit(&self, spec: &ApiSpec, workflows: &[Workflow], out_dir: &Path) -> Result<()> {
+    async fn emit(
+        &self,
+        spec: &ApiSpec,
+        workflows: &[Workflow],
+        out_dir: &Path,
+        format: SkillFormat,
+    ) -> Result<()> {
         fs::create_dir_all(out_dir).context("create out_dir")?;
+
+        match format {
+            SkillFormat::Markdown => self.emit_markdown(spec, workflows, out_dir).await,
+            SkillFormat::Anthropic => self.emit_anthropic(spec, workflows, out_dir).await,
+            SkillFormat::OpenAITools => self.emit_openai(spec, workflows, out_dir).await,
+        }
+    }
+}
+
+impl MarkdownEmitter {
+    /// markdown 模式（默认）：SKILL.md + endpoints/*.md + workflows/*.md + workflows/*.yaml
+    async fn emit_markdown(
+        &self,
+        spec: &ApiSpec,
+        workflows: &[Workflow],
+        out_dir: &Path,
+    ) -> Result<()> {
         fs::create_dir_all(out_dir.join("endpoints")).context("create endpoints dir")?;
 
         // SKILL.md 总索引
@@ -79,6 +121,34 @@ impl SkillEmitter for MarkdownEmitter {
             }
         }
 
+        Ok(())
+    }
+
+    /// Anthropic 模式：单个 SKILL.md 含 YAML frontmatter
+    async fn emit_anthropic(
+        &self,
+        spec: &ApiSpec,
+        workflows: &[Workflow],
+        out_dir: &Path,
+    ) -> Result<()> {
+        let skill = render_anthropic_skill(spec, workflows);
+        fs::write(out_dir.join("SKILL.md"), skill).context("write SKILL.md")?;
+        Ok(())
+    }
+
+    /// OpenAI function calling 模式：单个 functions.json
+    async fn emit_openai(
+        &self,
+        spec: &ApiSpec,
+        workflows: &[Workflow],
+        out_dir: &Path,
+    ) -> Result<()> {
+        let tools = render_openai_tools(spec, workflows);
+        fs::write(
+            out_dir.join("functions.json"),
+            serde_json::to_string_pretty(&tools).context("serialize tools")?,
+        )
+        .context("write functions.json")?;
         Ok(())
     }
 }
@@ -497,6 +567,236 @@ fn schema_type_label(schema: &SchemaRef) -> String {
         }
         SchemaKind::Scalar => format!("`{}`", schema.name),
         SchemaKind::Any => "any".to_string(),
+    }
+}
+
+// ─────────────── Anthropic skill 渲染（E 阶段） ───────────────
+
+/// Anthropic SKILL.md：YAML frontmatter + 完整 API 描述（合并到一个文件）
+fn render_anthropic_skill(spec: &ApiSpec, workflows: &[Workflow]) -> String {
+    let mut s = String::new();
+    s.push_str("---\n");
+    s.push_str(&format!("name: {}\n", sanitize_for_frontmatter(&spec.title)));
+    s.push_str(&format!("description: {}\n", build_anthropic_description(spec, workflows)));
+    s.push_str("---\n\n");
+    s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
+    if let Some(desc) = &spec.description {
+        s.push_str(&format!("{desc}\n\n"));
+    }
+    if let Some(url) = &spec.base_url {
+        s.push_str(&format!("**Base URL**: `{url}`\n\n"));
+    }
+
+    // 调用约定
+    s.push_str("## 调用约定\n\n");
+    s.push_str("通过 JSON-RPC 2.0 over stdio 调用：\n\n");
+    s.push_str("```\n");
+    s.push_str("\"jsonrpc\":\"2.0\", \"id\":1, \"method\":\"call\",\n");
+    s.push_str(" \"params\":{\"endpoint_id\":\"<id>\", \"path_params\":{}, \"query\":{}, \"headers\":{}, \"body\":{}}\n");
+    s.push_str("```\n\n");
+    s.push_str("工作流用 `workflow.run` method：\n\n");
+    s.push_str("```\n");
+    s.push_str("\"method\":\"workflow.run\", \"params\":{\"workflow\":\"<name>\", \"inputs\":{...}}\n");
+    s.push_str("```\n\n");
+
+    // 业务域
+    s.push_str("## 业务域\n\n");
+    for d in &spec.domains {
+        s.push_str(&format!("### {}\n\n", d.name));
+        for id in &d.endpoint_ids {
+            if let Some(ep) = spec.endpoints.get(id) {
+                let summary = ep
+                    .summary
+                    .as_deref()
+                    .map(|x| format!(" — {x}"))
+                    .unwrap_or_default();
+                s.push_str(&format!(
+                    "- `{} {}` — {}{}\n",
+                    ep.method.as_str(),
+                    ep.path,
+                    id,
+                    summary,
+                ));
+            }
+        }
+        s.push('\n');
+    }
+
+    // 工作流
+    if !workflows.is_empty() {
+        s.push_str("## 工作流\n\n");
+        for wf in workflows {
+            s.push_str(&format!("### {}\n\n", wf.name));
+            if let Some(desc) = &wf.description {
+                s.push_str(&format!("{desc}\n\n"));
+            }
+            s.push_str(&format!("- 步数: {}\n", wf.steps.len()));
+            s.push_str(&format!("- 外部 inputs: {}\n", wf.inputs.len()));
+            s.push_str("\n调用示例：\n\n```\n");
+            s.push_str(&format!(
+                "x serve --skill <dir>  # 启动后：\n{{\"method\":\"workflow.run\",\"params\":{{\"workflow\":\"{}\",\"inputs\":{{...}}}}}}\n",
+                wf.name
+            ));
+            s.push_str("```\n\n");
+        }
+    }
+
+    s
+}
+
+/// 构造 Anthropic 的 description 字段（让 Claude 知道何时加载这个 skill）
+fn build_anthropic_description(spec: &ApiSpec, workflows: &[Workflow]) -> String {
+    let domain_names: Vec<&str> = spec.domains.iter().take(8).map(|d| d.name.as_str()).collect();
+    let domain_phrase = if domain_names.is_empty() {
+        "通用 API".to_string()
+    } else {
+        format!("覆盖 {} 等业务域", domain_names.join("、"))
+    };
+    let workflow_phrase = if workflows.is_empty() {
+        String::new()
+    } else {
+        format!(" 包含 {} 个工作流（多步任务）。", workflows.len())
+    };
+    let version = spec.version.trim_start_matches('v');
+    format!(
+        "API 版本 {}，{} 个接口，{}。{}当用户问及这些业务时使用此 skill。",
+        version,
+        spec.endpoints.len(),
+        domain_phrase,
+        workflow_phrase,
+    )
+}
+
+/// frontmatter 值要简单（不能含 :、换行、引号）
+fn sanitize_for_frontmatter(s: &str) -> String {
+    s.replace(['\n', '\r', ':', '"'], " ")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '（' | '）' | '、'))
+        .collect()
+}
+
+// ─────────────── OpenAI function calling 渲染（E 阶段） ───────────────
+
+/// OpenAI function calling JSON：{ "tools": [ { "type": "function", "function": {...} } ] }
+fn render_openai_tools(spec: &ApiSpec, workflows: &[Workflow]) -> serde_json::Value {
+    let mut tools = Vec::new();
+
+    for ep in spec.endpoints.values() {
+        tools.push(json!({
+            "type": "function",
+            "function": {
+                "name": ep.id,
+                "description": build_endpoint_description(ep),
+                "parameters": build_endpoint_parameters(ep),
+            }
+        }));
+    }
+
+    for wf in workflows {
+        tools.push(json!({
+            "type": "function",
+            "function": {
+                "name": format!("workflow.{}", wf.name),
+                "description": wf.description.clone().unwrap_or_else(|| wf.name.clone()),
+                "parameters": build_workflow_parameters(wf),
+            }
+        }));
+    }
+
+    json!({ "tools": tools })
+}
+
+fn build_endpoint_description(ep: &Endpoint) -> String {
+    let summary = ep.summary.as_deref().unwrap_or("");
+    let description = ep.description.as_deref().unwrap_or("");
+    let method_path = format!("{} {}", ep.method.as_str(), ep.path);
+    if description.is_empty() {
+        if summary.is_empty() {
+            method_path
+        } else {
+            format!("{method_path} — {summary}")
+        }
+    } else {
+        format!("{method_path} — {summary}\n{description}")
+    }
+}
+
+fn build_endpoint_parameters(ep: &Endpoint) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    let mut required = Vec::new();
+
+    // path / query / header 合并为 properties（因为 function calling 不区分位置）
+    for p in &ep.params {
+        properties.insert(
+            p.name.clone(),
+            json!({
+                "type": schema_json_type(p.schema.name.as_str()),
+                "description": p.description.clone().unwrap_or_default(),
+            }),
+        );
+        if p.required {
+            required.push(p.name.clone());
+        }
+    }
+
+    // body 作为 body 参数
+    if let Some(rb) = &ep.request_body {
+        properties.insert(
+            "body".to_string(),
+            json!({
+                "type": "object",
+                "description": rb.schema.name.clone(),
+            }),
+        );
+        if rb.required {
+            required.push("body".to_string());
+        }
+    }
+
+    let required = if required.is_empty() {
+        None
+    } else {
+        Some(required)
+    };
+
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": required.unwrap_or_default(),
+    })
+}
+
+fn build_workflow_parameters(wf: &Workflow) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    let mut required = Vec::new();
+    for input in &wf.inputs {
+        properties.insert(
+            input.name.clone(),
+            json!({
+                "type": schema_json_type(&input.r#type),
+                "description": input.description.clone().unwrap_or_default(),
+            }),
+        );
+        if input.default.is_none() {
+            required.push(input.name.clone());
+        }
+    }
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    })
+}
+
+fn schema_json_type(name: &str) -> &'static str {
+    match name {
+        "string" => "string",
+        "integer" => "integer",
+        "number" => "number",
+        "boolean" => "boolean",
+        "array" => "array",
+        "object" => "object",
+        _ => "string",
     }
 }
 

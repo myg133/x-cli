@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 use x_cli_core::parse_openapi_str;
-use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter};
+use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter, SkillFormat};
 
 const PETSTORE: &str = include_str!("fixtures/petstore.yaml");
 const HTTPBIN: &str = include_str!("fixtures/httpbin.yaml");
@@ -28,7 +28,7 @@ async fn emits_skill_index_with_calling_convention() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let skill_md = std::fs::read_to_string(out.join("SKILL.md")).expect("read SKILL.md");
 
@@ -51,7 +51,7 @@ async fn emits_endpoint_files() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     // 5 个端点文件
     for id in [
@@ -71,7 +71,7 @@ async fn endpoint_md_contains_python_invocation_example() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__get__pets_petId.md"),
@@ -97,7 +97,7 @@ async fn endpoint_md_with_body_has_body_placeholder() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__post__pets.md"),
@@ -114,7 +114,7 @@ async fn httpbin_emit_succeeds() {
     let spec = parse_openapi_str(HTTPBIN).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit httpbin");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit httpbin");
     assert!(out.join("SKILL.md").exists());
 }
 
@@ -125,7 +125,7 @@ async fn endpoint_with_request_body_renders_resolved_properties() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__post__pets.md"),
@@ -147,7 +147,7 @@ async fn response_schema_renders_too() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("pet__get__pets_petId.md"),
@@ -196,7 +196,7 @@ components:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit tree");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit tree");
 
     let ep = std::fs::read_to_string(
         out.join("endpoints").join("tree__get__tree.md"),
@@ -244,7 +244,7 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&spec, std::slice::from_ref(&wf), &out)
+        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
         .await
         .expect("emit");
 
@@ -294,7 +294,7 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&spec, std::slice::from_ref(&wf), &out)
+        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
         .await
         .expect("emit");
 
@@ -333,7 +333,7 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&_spec, std::slice::from_ref(&wf), &out)
+        .emit(&_spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
         .await
         .expect("emit");
 
@@ -399,7 +399,7 @@ paths:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let body = std::fs::read_to_string(out.join("endpoints").join("things__get__things.md"))
         .expect("read");
@@ -456,7 +456,7 @@ paths:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let body = std::fs::read_to_string(out.join("endpoints").join("x__get__x.md"))
         .expect("read");
@@ -488,7 +488,7 @@ paths:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out).await.expect("emit");
+    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
 
     let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("read skill");
     // 显示用真名（保留空格）
@@ -501,4 +501,156 @@ paths:
     // 文件名还是带空格（os 兼容的，不动）
     let file_path = out.join("endpoints").join("My Tag__get__things.md");
     assert!(file_path.exists(), "actual file should still have space in name");
+}
+
+// ─────────────── E 阶段：Anthropic + OpenAI 格式 ───────────────
+
+#[tokio::test]
+async fn anthropic_format_emits_skill_md_with_frontmatter() {
+    let spec = parse_openapi_str(PETSTORE).expect("parse petstore");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Anthropic)
+        .await
+        .expect("emit anthropic");
+
+    // 应该只有一份 SKILL.md（不分子文件）
+    let entries: Vec<_> = std::fs::read_dir(&out)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
+    assert_eq!(entries.len(), 1, "Anthropic mode should produce only SKILL.md");
+
+    let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("read skill");
+    // 必须有 YAML frontmatter
+    assert!(skill.starts_with("---\n"), "must start with YAML frontmatter");
+    assert!(skill.contains("name: Pet Store API"));
+    assert!(skill.contains("description:"));
+    // 不应该有分文件
+    assert!(!out.join("endpoints").exists(), "no endpoints/ dir in anthropic mode");
+}
+
+#[tokio::test]
+async fn anthropic_description_includes_domain_summary() {
+    // description 字段要让 Claude 知道何时用
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Anthropic)
+        .await
+        .expect("emit");
+
+    let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("read");
+    // description 应当包含端点数 + 业务域
+    let in_frontmatter = skill.split("---\n").nth(1).expect("frontmatter");
+    assert!(in_frontmatter.contains("5 个接口"), "should mention endpoint count");
+    assert!(in_frontmatter.contains("pet") && in_frontmatter.contains("store"));
+}
+
+#[tokio::test]
+async fn openai_format_emits_functions_json() {
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::OpenAITools)
+        .await
+        .expect("emit openai");
+
+    let path = out.join("functions.json");
+    assert!(path.exists(), "functions.json should exist");
+    let raw = std::fs::read_to_string(&path).expect("read");
+    let v: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON");
+
+    // 顶层是 { tools: [...] }
+    let tools = v.get("tools").and_then(|t| t.as_array()).expect("tools array");
+    // 5 个 endpoint
+    assert_eq!(tools.len(), 5, "5 endpoint = 5 tools");
+
+    // 每个 tool 都有 type=function, function.{name, description, parameters}
+    let first = &tools[0];
+    assert_eq!(first.get("type").and_then(|t| t.as_str()), Some("function"));
+    let f = first.get("function").expect("function");
+    assert!(f.get("name").is_some());
+    assert!(f.get("description").is_some());
+    let params = f.get("parameters").expect("parameters");
+    assert_eq!(params.get("type").and_then(|t| t.as_str()), Some("object"));
+    assert!(params.get("properties").is_some());
+}
+
+#[tokio::test]
+async fn openai_format_required_params_marked() {
+    // petId 是 path required 参数 → 必须在 required 列表里
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::OpenAITools)
+        .await
+        .expect("emit");
+
+    let v: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out.join("functions.json")).expect("read"),
+    )
+    .expect("parse");
+    let tools = v.get("tools").and_then(|t| t.as_array()).expect("tools");
+
+    // 找 pet__get__pets_petId 这个 tool
+    let tool = tools
+        .iter()
+        .find(|t| {
+            t.get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                == Some("pet__get__pets_petId")
+        })
+        .expect("pet get tool");
+    let required = tool
+        .get("function")
+        .and_then(|f| f.get("parameters"))
+        .and_then(|p| p.get("required"))
+        .and_then(|r| r.as_array())
+        .expect("required");
+    let req_strs: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+    assert!(req_strs.contains(&"petId"), "petId must be required");
+}
+
+#[tokio::test]
+async fn openai_format_workflows_also_become_tools() {
+    use x_cli_core::{parse_workflow_str, Workflow};
+
+    let spec = parse_openapi_str(PETSTORE).expect("parse");
+    let wf: Workflow = parse_workflow_str(
+        r#"
+name: create-and-read
+steps:
+  - name: create
+    endpoint: pet__post__pets
+"#,
+    )
+    .expect("parse wf");
+
+    let out = temp_out();
+    let emitter = MarkdownEmitter::new();
+    emitter
+        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::OpenAITools)
+        .await
+        .expect("emit");
+
+    let v: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out.join("functions.json")).expect("read"),
+    )
+    .expect("parse");
+    let tools = v.get("tools").and_then(|t| t.as_array()).expect("tools");
+
+    // 5 endpoints + 1 workflow = 6
+    assert_eq!(tools.len(), 6);
+    let names: Vec<&str> = tools
+        .iter()
+        .filter_map(|t| t.get("function")?.get("name")?.as_str())
+        .collect();
+    assert!(names.contains(&"workflow.create-and-read"), "workflow tool name: {names:?}");
 }

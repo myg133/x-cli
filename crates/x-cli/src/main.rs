@@ -6,15 +6,32 @@
 //! - `x serve --skill DIR`       启动 stdio JSON-RPC 服务（agent 调 x 的入口）
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use x_cli_core::ir::{ApiSpec, Workflow};
 use x_cli_core::{parse_openapi, parse_workflow};
-use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter};
+use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter, SkillFormat};
 use x_cli_runtime::{serve_stdio, AuthProfile, HttpCaller};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum SkillFormatArg {
+    Markdown,
+    Anthropic,
+    Openai,
+}
+
+impl From<SkillFormatArg> for SkillFormat {
+    fn from(a: SkillFormatArg) -> Self {
+        match a {
+            SkillFormatArg::Markdown => SkillFormat::Markdown,
+            SkillFormatArg::Anthropic => SkillFormat::Anthropic,
+            SkillFormatArg::Openai => SkillFormat::OpenAITools,
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "x", version, about = "把后端 OpenAPI 转成 agent 可用的 skill")]
@@ -40,6 +57,9 @@ enum Cmd {
         /// 可选：workflow.yaml 路径
         #[arg(long)]
         workflow: Vec<PathBuf>,
+        /// 输出格式
+        #[arg(long, value_enum, default_value_t = SkillFormatArg::Markdown)]
+        format: SkillFormatArg,
     },
     /// 启动 stdio JSON-RPC 服务（agent 加载 skill 后调这个）
     Serve {
@@ -63,7 +83,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Parse { openapi } => cmd_parse(openapi),
-        Cmd::Emit { openapi, out, workflow } => cmd_emit(openapi, out, workflow).await,
+        Cmd::Emit { openapi, out, workflow, format } => {
+            cmd_emit(openapi, out, workflow, format.into()).await
+        }
         Cmd::Serve { skill, base_url } => cmd_serve(skill, base_url).await,
     }
 }
@@ -74,7 +96,12 @@ fn cmd_parse(openapi: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_emit(openapi: PathBuf, out: PathBuf, workflows: Vec<PathBuf>) -> Result<()> {
+async fn cmd_emit(
+    openapi: PathBuf,
+    out: PathBuf,
+    workflows: Vec<PathBuf>,
+    format: SkillFormat,
+) -> Result<()> {
     let spec = parse_openapi(&openapi).context("parse openapi")?;
     std::fs::create_dir_all(&out).context("create out dir")?;
     let emitter = MarkdownEmitter::new();
@@ -98,23 +125,31 @@ async fn cmd_emit(openapi: PathBuf, out: PathBuf, workflows: Vec<PathBuf>) -> Re
     }
 
     emitter
-        .emit(&spec, &parsed_workflows, &out)
+        .emit(&spec, &parsed_workflows, &out, format)
         .await
-        .context("emit markdown")?;
+        .context("emit")?;
 
-    // 缓存 IR 供 serve 使用
+    // 缓存 IR 供 serve 使用（任何 format 都要，因为 serve 跑 workflow 时需要）
     let cache_dir = out.join(".x-cli");
     std::fs::create_dir_all(&cache_dir).context("create cache dir")?;
     let ir_json = serde_json::to_string_pretty(&spec)?;
     std::fs::write(cache_dir.join("ir.json"), ir_json).context("write ir.json")?;
     println!(
-        "✓ 解析 {} 个接口、{} 个工作流，写入 {}\n  业务域: {}",
+        "✓ 解析 {} 个接口、{} 个工作流，格式 {} 写入 {}",
         spec.endpoints.len(),
         parsed_workflows.len(),
-        out.display(),
-        spec.domains.len()
+        format_label(format),
+        out.display()
     );
     Ok(())
+}
+
+fn format_label(f: SkillFormat) -> &'static str {
+    match f {
+        SkillFormat::Markdown => "markdown",
+        SkillFormat::Anthropic => "anthropic",
+        SkillFormat::OpenAITools => "openai-tools",
+    }
 }
 
 async fn cmd_serve(skill: PathBuf, base_url_override: Option<String>) -> Result<()> {
