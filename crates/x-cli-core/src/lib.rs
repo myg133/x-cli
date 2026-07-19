@@ -12,6 +12,6 @@ pub mod error;
 
 pub use error::{Error, Result};
 pub use ir::{ApiSpec, Domain, Endpoint, InputRef, Param, ParamLocation, RequestBody, ResolvedSchema, Response, HttpMethod, SchemaKind, SchemaRef, StepInputs, Workflow, WorkflowInput, WorkflowStep};
-pub use openapi::{parse_openapi, parse_openapi_str};
+pub use openapi::{parse_openapi, parse_openapi_str, parse_openapi_str_json};
 pub use protocol::{RpcRequest, RpcResponse, RpcError, RpcMethod};
 pub use workflow::{parse_workflow, parse_workflow_str};

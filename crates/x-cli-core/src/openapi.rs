@@ -18,15 +18,27 @@ use oas3::{OpenApiV3Spec, Spec as OasSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-/// 从文件读取并解析 OpenAPI 3 文档
+/// 从文件读取并解析 OpenAPI 3 文档（按扩展名自动选择 YAML / JSON）
 pub fn parse_openapi<P: AsRef<Path>>(path: P) -> Result<ApiSpec> {
-    let content = std::fs::read_to_string(path.as_ref())?;
+    let path = path.as_ref();
+    let content = std::fs::read_to_string(path)?;
+    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+        if ext.eq_ignore_ascii_case("json") {
+            return parse_openapi_str_json(&content);
+        }
+    }
     parse_openapi_str(&content)
 }
 
 /// 从 YAML 字符串解析 OpenAPI 3 文档
 pub fn parse_openapi_str(yaml: &str) -> Result<ApiSpec> {
     let spec: OpenApiV3Spec = oas3::from_yaml(yaml).map_err(|e| Error::OpenApiParse(e.to_string()))?;
+    Ok(convert(&spec))
+}
+
+/// 从 JSON 字符串解析 OpenAPI 3 文档
+pub fn parse_openapi_str_json(json: &str) -> Result<ApiSpec> {
+    let spec: OpenApiV3Spec = oas3::from_json(json).map_err(|e| Error::OpenApiParse(e.to_string()))?;
     Ok(convert(&spec))
 }
 
@@ -308,15 +320,27 @@ fn resolve_schema_ref(
         None
     };
 
-    let result = schema_from_object(&obj, spec, ctx);
+    let mut result = schema_from_object(&obj, spec, ctx);
 
     // 4. 出解析链 + 写缓存
     if let Some(n) = prev_in_progress {
         ctx.in_progress.remove(&n);
+        // 用 ref 名覆盖 ObjectSchema 自带的 name（如果 ObjectSchema 没 title，
+        // 兜底是 "object"/"any"/"array"/"scalar" 这类泛型名，agent 看着没意义；
+        // 优先用 ref 里的真名）
+        if is_generic_schema_name(&result.name) {
+            result.name = n.clone();
+        }
         ctx.cache.insert(n, result.clone());
     }
 
     result
+}
+
+/// ObjectSchema 没有 title 时的兜底名都是泛型（object/any/array/scalar），
+/// 这种情况用 ref 路径里的真名替换更有信息量。
+fn is_generic_schema_name(name: &str) -> bool {
+    matches!(name, "object" | "any" | "array" | "scalar" | "")
 }
 
 fn schema_from_object(obj: &ObjectSchema, spec: &OasSpec, ctx: &mut ResolveCtx) -> SchemaRef {
