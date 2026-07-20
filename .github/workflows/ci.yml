@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates/x-cli -> target
+            crates/x-cli-core -> target
+            crates/x-cli-runtime -> target
+            crates/x-cli-emitter-md -> target
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace --all-targets
+
+      - name: Clippy
+        # x-cli v0.1 阶段 clippy warning 不阻塞 merge（防止 onboarding 摩擦）
+        # warning 留待后续 v0.2 修
+        run: cargo clippy --workspace --all-targets -- -W warnings
+        continue-on-error: true

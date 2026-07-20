@@ -32,7 +32,8 @@ pub fn parse_openapi<P: AsRef<Path>>(path: P) -> Result<ApiSpec> {
 
 /// 从 YAML 字符串解析 OpenAPI 3 文档
 pub fn parse_openapi_str(yaml: &str) -> Result<ApiSpec> {
-    let spec: OpenApiV3Spec = oas3::from_yaml(yaml).map_err(|e| Error::OpenApiParse(e.to_string()))?;
+    let spec: OpenApiV3Spec =
+        oas3::from_yaml(yaml).map_err(|e| Error::OpenApiParse(e.to_string()))?;
     Ok(convert(&spec))
 }
 
@@ -46,8 +47,8 @@ pub fn parse_openapi_str_json(json: &str) -> Result<ApiSpec> {
     let normalized = convert_oas_3_0_to_3_1(raw);
     let normalized_str = serde_json::to_string(&normalized)
         .map_err(|e| Error::OpenApiParse(format!("reencode: {e}")))?;
-    let spec: OpenApiV3Spec = oas3::from_json(&normalized_str)
-        .map_err(|e| Error::OpenApiParse(e.to_string()))?;
+    let spec: OpenApiV3Spec =
+        oas3::from_json(&normalized_str).map_err(|e| Error::OpenApiParse(e.to_string()))?;
     Ok(convert(&spec))
 }
 
@@ -68,7 +69,9 @@ fn convert_oas_3_0_to_3_1(mut root: serde_json::Value) -> serde_json::Value {
 }
 
 fn convert_paths(value: &mut serde_json::Value) {
-    let Some(paths_obj) = value.as_object_mut() else { return };
+    let Some(paths_obj) = value.as_object_mut() else {
+        return;
+    };
     for (_path, path_item) in paths_obj {
         if let Some(pi) = path_item.as_object_mut() {
             // path-item 级 parameters
@@ -92,9 +95,10 @@ fn convert_params_array(value: &mut serde_json::Value) {
         for param in arr {
             if let Some(p) = param.as_object_mut() {
                 if let Some(content) = p.remove("content") {
-                    if let Some(media) = content.as_object().and_then(|o| {
-                        o.values().next().and_then(|v| v.as_object())
-                    }) {
+                    if let Some(media) = content
+                        .as_object()
+                        .and_then(|o| o.values().next().and_then(|v| v.as_object()))
+                    {
                         if let Some(schema) = media.get("schema") {
                             p.insert("schema".to_string(), schema.clone());
                         }
@@ -297,7 +301,9 @@ fn convert_responses(
     spec: &OasSpec,
     ctx: &mut ResolveCtx,
 ) -> Vec<Response> {
-    let Some(responses) = responses else { return Vec::new() };
+    let Some(responses) = responses else {
+        return Vec::new();
+    };
     let mut out: Vec<Response> = responses
         .iter()
         .filter_map(|(status_str, oor)| {
@@ -313,7 +319,12 @@ fn convert_responses(
                 .content
                 .iter()
                 .next()
-                .map(|(ct, m)| (Some(ct.clone()), Some(resolve_schema_ref(&m.schema, spec, ctx))))
+                .map(|(ct, m)| {
+                    (
+                        Some(ct.clone()),
+                        Some(resolve_schema_ref(&m.schema, spec, ctx)),
+                    )
+                })
                 .unwrap_or((None, None));
             Some(Response {
                 status,
@@ -480,7 +491,9 @@ fn ref_schema_name_for_oor(
 }
 
 fn infer_kind(obj: &ObjectSchema) -> SchemaKind {
-    let Some(ts) = &obj.schema_type else { return SchemaKind::Any };
+    let Some(ts) = &obj.schema_type else {
+        return SchemaKind::Any;
+    };
     match ts {
         SchemaTypeSet::Single(t) => single_kind(*t),
         SchemaTypeSet::Multiple(set) => {
@@ -505,7 +518,9 @@ fn single_kind(t: SchemaType) -> SchemaKind {
 }
 
 fn type_set_label(ts: &Option<SchemaTypeSet>) -> String {
-    let Some(ts) = ts else { return "any".to_string() };
+    let Some(ts) = ts else {
+        return "any".to_string();
+    };
     match ts {
         SchemaTypeSet::Single(t) => format!("{:?}", t).to_lowercase(),
         SchemaTypeSet::Multiple(ts) => ts

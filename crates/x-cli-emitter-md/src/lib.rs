@@ -17,7 +17,10 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
-use x_cli_core::ir::{ApiSpec, Endpoint, HttpMethod, InputRef, ParamLocation, ResolvedSchema, Response, SchemaRef, Workflow, WorkflowStep};
+use x_cli_core::ir::{
+    ApiSpec, Endpoint, HttpMethod, InputRef, ParamLocation, ResolvedSchema, Response, SchemaRef,
+    Workflow, WorkflowStep,
+};
 
 /// Skill 输出格式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -106,18 +109,12 @@ impl MarkdownEmitter {
             for wf in workflows {
                 let body = render_workflow(wf, spec);
                 let safe = sanitize_filename(&wf.name);
-                fs::write(
-                    out_dir.join("workflows").join(format!("{safe}.md")),
-                    body,
-                )
-                .context("write workflow md")?;
+                fs::write(out_dir.join("workflows").join(format!("{safe}.md")), body)
+                    .context("write workflow md")?;
                 // 机器可读版本：runtime 用这个加载
                 let yaml = serde_yaml::to_string(wf).context("serialize workflow yaml")?;
-                fs::write(
-                    out_dir.join("workflows").join(format!("{safe}.yaml")),
-                    yaml,
-                )
-                .context("write workflow yaml")?;
+                fs::write(out_dir.join("workflows").join(format!("{safe}.yaml")), yaml)
+                    .context("write workflow yaml")?;
             }
         }
 
@@ -156,7 +153,10 @@ impl MarkdownEmitter {
 fn render_index(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     let mut s = String::new();
     s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
-    s.push_str(&format!("> 自动生成自 OpenAPI {}，由 x-cli 渲染。请勿手动修改。\n\n", spec.version));
+    s.push_str(&format!(
+        "> 自动生成自 OpenAPI {}，由 x-cli 渲染。请勿手动修改。\n\n",
+        spec.version
+    ));
 
     if let Some(desc) = &spec.description {
         s.push_str(&format!("{desc}\n\n"));
@@ -178,7 +178,11 @@ fn render_index(spec: &ApiSpec, workflows: &[Workflow]) -> String {
 
     s.push_str("## 业务域\n\n");
     for d in &spec.domains {
-        s.push_str(&format!("### `{}`（{} 个接口）\n\n", d.name, d.endpoint_ids.len()));
+        s.push_str(&format!(
+            "### `{}`（{} 个接口）\n\n",
+            d.name,
+            d.endpoint_ids.len()
+        ));
         for id in &d.endpoint_ids {
             if let Some(ep) = spec.endpoints.get(id) {
                 s.push_str(&format!(
@@ -306,7 +310,10 @@ fn render_endpoint(ep: &Endpoint, _spec: &ApiSpec) -> String {
             if let Some(schema) = &first.schema {
                 if !schema.name.is_empty() && schema.name != "any" {
                     let statuses = merge_statuses(rs);
-                    s.push_str(&format!("\n### 响应 {statuses} schema `{}`\n\n", schema.name));
+                    s.push_str(&format!(
+                        "\n### 响应 {statuses} schema `{}`\n\n",
+                        schema.name
+                    ));
                     s.push_str(&render_resolved_schema_block(schema, 0));
                 }
             }
@@ -465,10 +472,7 @@ fn render_resolved_schema_block(schema: &SchemaRef, depth: usize) -> String {
     }
     let Some(resolved) = &schema.resolved else {
         // 没有 resolved 树：返回原 schema 描述
-        return format!(
-            "> schema `{}`（未解析）\n",
-            schema.name
-        );
+        return format!("> schema `{}`（未解析）\n", schema.name);
     };
     if resolved.recursive {
         return format!("> schema `{}` — 循环引用回填\n", schema.name);
@@ -500,17 +504,16 @@ fn render_resolved_into(
                 };
                 let desc = pschema.description.as_deref().unwrap_or("");
                 let type_label = schema_type_label(pschema);
-                out.push_str(&format!("| `{pname}` | {type_label} | {required} | {desc} |\n"));
+                out.push_str(&format!(
+                    "| `{pname}` | {type_label} | {required} | {desc} |\n"
+                ));
             }
             out.push('\n');
             // 递归：如果某个 property 是 object/array 且有 properties/items，再展开
             for (pname, pschema) in &resolved.properties {
                 if let Some(inner) = &pschema.resolved {
                     if matches!(inner.kind, SchemaKind::Object) && !inner.properties.is_empty() {
-                        out.push_str(&format!(
-                            "### `{pname}` 类型（{}）\n\n",
-                            pschema.name
-                        ));
+                        out.push_str(&format!("### `{pname}` 类型（{}）\n\n", pschema.name));
                         render_resolved_into(out, pschema, inner, depth + 1);
                     } else if matches!(inner.kind, SchemaKind::Array) {
                         if let Some(items) = &inner.items {
@@ -576,8 +579,14 @@ fn schema_type_label(schema: &SchemaRef) -> String {
 fn render_anthropic_skill(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     let mut s = String::new();
     s.push_str("---\n");
-    s.push_str(&format!("name: {}\n", sanitize_for_frontmatter(&spec.title)));
-    s.push_str(&format!("description: {}\n", build_anthropic_description(spec, workflows)));
+    s.push_str(&format!(
+        "name: {}\n",
+        sanitize_for_frontmatter(&spec.title)
+    ));
+    s.push_str(&format!(
+        "description: {}\n",
+        build_anthropic_description(spec, workflows)
+    ));
     s.push_str("---\n\n");
     s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
     if let Some(desc) = &spec.description {
@@ -596,7 +605,9 @@ fn render_anthropic_skill(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     s.push_str("```\n\n");
     s.push_str("工作流用 `workflow.run` method：\n\n");
     s.push_str("```\n");
-    s.push_str("\"method\":\"workflow.run\", \"params\":{\"workflow\":\"<name>\", \"inputs\":{...}}\n");
+    s.push_str(
+        "\"method\":\"workflow.run\", \"params\":{\"workflow\":\"<name>\", \"inputs\":{...}}\n",
+    );
     s.push_str("```\n\n");
 
     // 业务域
@@ -646,7 +657,12 @@ fn render_anthropic_skill(spec: &ApiSpec, workflows: &[Workflow]) -> String {
 
 /// 构造 Anthropic 的 description 字段（让 Claude 知道何时加载这个 skill）
 fn build_anthropic_description(spec: &ApiSpec, workflows: &[Workflow]) -> String {
-    let domain_names: Vec<&str> = spec.domains.iter().take(8).map(|d| d.name.as_str()).collect();
+    let domain_names: Vec<&str> = spec
+        .domains
+        .iter()
+        .take(8)
+        .map(|d| d.name.as_str())
+        .collect();
     let domain_phrase = if domain_names.is_empty() {
         "通用 API".to_string()
     } else {
@@ -815,7 +831,11 @@ fn render_workflow(wf: &Workflow, spec: &ApiSpec) -> String {
         s.push_str("| 名称 | 类型 | 必填 | 默认 | 说明 |\n");
         s.push_str("|---|---|---|---|---|\n");
         for input in &wf.inputs {
-            let required = if input.default.is_none() { "✅" } else { "—" };
+            let required = if input.default.is_none() {
+                "✅"
+            } else {
+                "—"
+            };
             let default = input
                 .default
                 .as_ref()
@@ -837,8 +857,11 @@ fn render_workflow(wf: &Workflow, spec: &ApiSpec) -> String {
         if let Some(desc) = &step.description {
             s.push_str(&format!("> {desc}\n\n"));
         }
-        s.push_str(&format!("- endpoint: [`{}`](../endpoints/{}.md)\n",
-            step.endpoint, url_encode_path(&sanitize_filename(&step.endpoint))));
+        s.push_str(&format!(
+            "- endpoint: [`{}`](../endpoints/{}.md)\n",
+            step.endpoint,
+            url_encode_path(&sanitize_filename(&step.endpoint))
+        ));
         // depends_on
         if step.depends_on.is_empty() {
             s.push_str("- depends_on: —\n");
@@ -924,25 +947,41 @@ fn render_step_inputs(s: &mut String, inputs: &x_cli_core::ir::StepInputs) {
     if !inputs.path_params.is_empty() {
         s.push_str("  - path_params:\n");
         for (k, v) in &inputs.path_params {
-            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+            s.push_str(&format!(
+                "    - `{}` ← {}\n",
+                k,
+                InputRef::parse(v).describe()
+            ));
         }
     }
     if !inputs.query.is_empty() {
         s.push_str("  - query:\n");
         for (k, v) in &inputs.query {
-            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+            s.push_str(&format!(
+                "    - `{}` ← {}\n",
+                k,
+                InputRef::parse(v).describe()
+            ));
         }
     }
     if !inputs.headers.is_empty() {
         s.push_str("  - headers:\n");
         for (k, v) in &inputs.headers {
-            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+            s.push_str(&format!(
+                "    - `{}` ← {}\n",
+                k,
+                InputRef::parse(v).describe()
+            ));
         }
     }
     if !inputs.body.is_empty() {
         s.push_str("  - body:\n");
         for (k, v) in &inputs.body {
-            s.push_str(&format!("    - `{}` ← {}\n", k, InputRef::parse(v).describe()));
+            s.push_str(&format!(
+                "    - `{}` ← {}\n",
+                k,
+                InputRef::parse(v).describe()
+            ));
         }
     }
 }

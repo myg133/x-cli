@@ -10,9 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tracing::warn;
 use x_cli_core::ir::{ApiSpec, InputRef, StepInputs, Workflow, WorkflowStep};
-use x_cli_core::protocol::{
-    error_code, RpcError, WorkflowRunResult, WorkflowStepResult,
-};
+use x_cli_core::protocol::{error_code, RpcError, WorkflowRunResult, WorkflowStepResult};
 
 pub struct WorkflowExecutor {
     spec: Arc<ApiSpec>,
@@ -67,7 +65,8 @@ impl WorkflowExecutor {
 
         for step in order {
             // 解析 step 的 inputs
-            let call_params = match self.build_call_params(&step.inputs, &input_obj, &step_outputs) {
+            let call_params = match self.build_call_params(&step.inputs, &input_obj, &step_outputs)
+            {
                 Ok(p) => p,
                 Err(e) => {
                     return Err(RpcError {
@@ -79,16 +78,18 @@ impl WorkflowExecutor {
             };
 
             // 找 endpoint
-            let endpoint = self.spec.endpoints.get(&step.endpoint).ok_or_else(|| {
-                RpcError {
+            let endpoint = self
+                .spec
+                .endpoints
+                .get(&step.endpoint)
+                .ok_or_else(|| RpcError {
                     code: error_code::ENDPOINT_NOT_FOUND,
                     message: format!(
                         "step `{}` references unknown endpoint `{}`",
                         step.name, step.endpoint
                     ),
                     data: None,
-                }
-            })?;
+                })?;
 
             // 调 HTTP
             let resp = match self

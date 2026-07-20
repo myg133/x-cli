@@ -14,16 +14,21 @@ fn spec() -> Arc<ApiSpec> {
     Arc::new(parse_openapi_str(PETSTORE).expect("parse petstore"))
 }
 
-async fn round_trip(
-    spec: Arc<ApiSpec>,
-    request: &str,
-) -> Vec<String> {
+async fn round_trip(spec: Arc<ApiSpec>, request: &str) -> Vec<String> {
     let (mut client_write, server_read) = duplex(4096);
     let (server_write, mut client_read) = duplex(4096);
 
     let caller = HttpCaller::new(AuthProfile::default()).expect("caller");
     let serve_task = tokio::spawn(async move {
-        serve(server_read, server_write, spec, std::collections::BTreeMap::new(), None, caller).await;
+        serve(
+            server_read,
+            server_write,
+            spec,
+            std::collections::BTreeMap::new(),
+            None,
+            caller,
+        )
+        .await;
     });
 
     // 写请求 + 关闭写端触发 EOF

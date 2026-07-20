@@ -89,12 +89,11 @@ async fn handle_line(
     spec: &ApiSpec,
     executor: &Arc<WorkflowExecutor>,
 ) -> Result<RpcResponse, RpcError> {
-    let req: RpcRequest = serde_json::from_str(line)
-        .map_err(|e| RpcError {
-            code: error_code::PARSE_ERROR,
-            message: format!("invalid JSON-RPC: {e}"),
-            data: None,
-        })?;
+    let req: RpcRequest = serde_json::from_str(line).map_err(|e| RpcError {
+        code: error_code::PARSE_ERROR,
+        message: format!("invalid JSON-RPC: {e}"),
+        data: None,
+    })?;
 
     match req.method {
         RpcMethod::Ping => Ok(RpcResponse {
@@ -104,18 +103,20 @@ async fn handle_line(
             error: None,
         }),
         RpcMethod::Call => {
-            let params: CallParams = serde_json::from_value(req.params.clone()).map_err(|e| {
-                RpcError {
+            let params: CallParams =
+                serde_json::from_value(req.params.clone()).map_err(|e| RpcError {
                     code: error_code::INVALID_PARAMS,
                     message: format!("invalid call params: {e}"),
                     data: None,
-                }
-            })?;
-            let endpoint = spec.endpoints.get(&params.endpoint_id).ok_or_else(|| RpcError {
-                code: error_code::ENDPOINT_NOT_FOUND,
-                message: format!("endpoint not found: {}", params.endpoint_id),
-                data: None,
-            })?;
+                })?;
+            let endpoint = spec
+                .endpoints
+                .get(&params.endpoint_id)
+                .ok_or_else(|| RpcError {
+                    code: error_code::ENDPOINT_NOT_FOUND,
+                    message: format!("endpoint not found: {}", params.endpoint_id),
+                    data: None,
+                })?;
             let path_params = params.path_params;
             let query = params.query;
             let headers = params.headers;

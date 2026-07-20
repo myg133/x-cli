@@ -60,9 +60,7 @@ fn step_inputs_resolve_correctly() {
 #[test]
 fn static_value_passes_through() {
     let wf = parse_workflow_str(SIMPLE).expect("parse");
-    let name_ref = InputRef::parse(
-        wf.steps[0].inputs.body.get("name").expect("name"),
-    );
+    let name_ref = InputRef::parse(wf.steps[0].inputs.body.get("name").expect("name"));
     assert!(matches!(name_ref, InputRef::Static(ref s) if s == "fluffy"));
 }
 

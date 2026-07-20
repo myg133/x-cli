@@ -239,10 +239,7 @@ pub enum InputRef {
     /// 引用工作流外部输入
     Input(String),
     /// 引用上一步响应
-    StepOutput {
-        step: String,
-        path: Vec<String>,
-    },
+    StepOutput { step: String, path: Vec<String> },
     /// 静态值
     Static(String),
 }

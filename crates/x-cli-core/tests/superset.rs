@@ -23,7 +23,11 @@ fn superset_domains_are_organized() {
     assert!(spec.domains.len() > 20);
     // 域里有 endpoint
     for d in &spec.domains {
-        assert!(!d.endpoint_ids.is_empty(), "domain {} has no endpoints", d.name);
+        assert!(
+            !d.endpoint_ids.is_empty(),
+            "domain {} has no endpoints",
+            d.name
+        );
     }
 }
 
@@ -35,7 +39,10 @@ fn superset_response_schema_resolves_to_real_name_not_object() {
     let ep = spec
         .endpoints
         .values()
-        .find(|e| e.path == "/api/v1/advanced_data_type/convert" && e.method == x_cli_core::HttpMethod::Get)
+        .find(|e| {
+            e.path == "/api/v1/advanced_data_type/convert"
+                && e.method == x_cli_core::HttpMethod::Get
+        })
         .expect("advanced_data_type convert endpoint");
     let resp_200 = ep
         .responses
@@ -44,7 +51,10 @@ fn superset_response_schema_resolves_to_real_name_not_object() {
         .expect("200 response");
     let schema = resp_200.schema.as_ref().expect("schema");
     // 关键断言：schema name 不能是泛型 "object"
-    assert_ne!(schema.name, "object", "schema name should not be generic 'object'");
+    assert_ne!(
+        schema.name, "object",
+        "schema name should not be generic 'object'"
+    );
     assert_ne!(schema.name, "any", "schema name should not be 'any'");
     // 必须含真实 schema 名（ref 解析应给到 AdvancedDataTypeSchema）
     assert!(
@@ -71,7 +81,13 @@ fn superset_database_post_request_body_has_all_fields() {
     let rb = ep.request_body.as_ref().expect("request body");
     let resolved = rb.schema.resolved.as_ref().expect("resolved");
     // 关键字段都在
-    for field in ["database_name", "sqlalchemy_uri", "allow_ctas", "allow_cvas", "extra"] {
+    for field in [
+        "database_name",
+        "sqlalchemy_uri",
+        "allow_ctas",
+        "allow_cvas",
+        "extra",
+    ] {
         assert!(
             resolved.properties.contains_key(field),
             "expected field `{field}` in request body schema"
@@ -118,7 +134,10 @@ fn oas3_0_parameters_content_style_gets_resolved() {
     let ep = spec
         .endpoints
         .values()
-        .find(|e| e.path == "/api/v1/advanced_data_type/convert" && e.method == x_cli_core::HttpMethod::Get)
+        .find(|e| {
+            e.path == "/api/v1/advanced_data_type/convert"
+                && e.method == x_cli_core::HttpMethod::Get
+        })
         .expect("advanced data type convert endpoint");
     let q = ep
         .params

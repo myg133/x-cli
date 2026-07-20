@@ -12,10 +12,9 @@ use anyhow::{Context, Result};
 pub fn build_auth_profile(bearer: &[String], headers: &[String]) -> Result<AuthProfile> {
     let mut profile = AuthProfile::default();
     for token in bearer {
-        profile.headers.insert(
-            "Authorization".to_string(),
-            format!("Bearer {token}"),
-        );
+        profile
+            .headers
+            .insert("Authorization".to_string(), format!("Bearer {token}"));
     }
     for h in headers {
         let (k, v) = h

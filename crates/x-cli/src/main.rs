@@ -82,7 +82,9 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_target(false)
         .with_writer(std::io::stderr)
         .init();
@@ -90,9 +92,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Parse { openapi } => cmd_parse(openapi),
-        Cmd::Emit { openapi, out, workflow, format } => {
-            cmd_emit(openapi, out, workflow, format.into()).await
-        }
+        Cmd::Emit {
+            openapi,
+            out,
+            workflow,
+            format,
+        } => cmd_emit(openapi, out, workflow, format.into()).await,
         Cmd::Serve {
             skill,
             base_url,
@@ -171,8 +176,8 @@ async fn cmd_serve(
     auth_header: Vec<String>,
 ) -> Result<()> {
     let ir_path = skill.join(".x-cli").join("ir.json");
-    let raw = std::fs::read_to_string(&ir_path)
-        .with_context(|| format!("read {}", ir_path.display()))?;
+    let raw =
+        std::fs::read_to_string(&ir_path).with_context(|| format!("read {}", ir_path.display()))?;
     let spec: ApiSpec = serde_json::from_str(&raw).context("parse ir.json")?;
 
     // 加载 workflows/ 下的所有 .yaml
@@ -185,7 +190,10 @@ async fn cmd_serve(
     let auth = build_auth_profile(&auth_bearer, &auth_header)?;
     let caller = HttpCaller::new(auth).context("build http caller")?;
     if !auth_bearer.is_empty() || !auth_header.is_empty() {
-        println!("✓ 注入 {} 个认证 header", auth_bearer.len() + auth_header.len());
+        println!(
+            "✓ 注入 {} 个认证 header",
+            auth_bearer.len() + auth_header.len()
+        );
     }
     serve_stdio(Arc::new(spec), workflows, base_url, caller).await;
     Ok(())
@@ -203,8 +211,8 @@ fn load_workflows(skill_dir: &std::path::Path) -> Result<BTreeMap<String, Arc<Wo
         if path.extension().and_then(|s| s.to_str()) != Some("yaml") {
             continue;
         }
-        let wf: Workflow = parse_workflow(&path)
-            .with_context(|| format!("parse {}", path.display()))?;
+        let wf: Workflow =
+            parse_workflow(&path).with_context(|| format!("parse {}", path.display()))?;
         out.insert(wf.name.clone(), Arc::new(wf));
     }
     Ok(out)

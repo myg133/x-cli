@@ -144,9 +144,10 @@ impl HttpCaller {
         }
 
         // 6. 发请求
-        let resp = req.send().await.map_err(|e| {
-            anyhow::anyhow!("send request to {url}: {e}")
-        })?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("send request to {url}: {e}"))?;
         let status = resp.status().as_u16();
         let resp_headers: Value = {
             let mut m = serde_json::Map::new();

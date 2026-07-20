@@ -19,11 +19,7 @@ fn bearer_token_becomes_authorization_header() {
 
 #[test]
 fn multiple_bearers_last_wins() {
-    let p = build_auth_profile(
-        &["first".to_string(), "second".to_string()],
-        &[],
-    )
-    .expect("build");
+    let p = build_auth_profile(&["first".to_string(), "second".to_string()], &[]).expect("build");
     assert_eq!(
         p.headers.get("Authorization").map(|s| s.as_str()),
         Some("Bearer second")
@@ -37,7 +33,10 @@ fn custom_header_is_passthrough() {
         &["X-API-Key=secret".to_string(), "X-Tenant=acme".to_string()],
     )
     .expect("build");
-    assert_eq!(p.headers.get("X-API-Key").map(|s| s.as_str()), Some("secret"));
+    assert_eq!(
+        p.headers.get("X-API-Key").map(|s| s.as_str()),
+        Some("secret")
+    );
     assert_eq!(p.headers.get("X-Tenant").map(|s| s.as_str()), Some("acme"));
 }
 

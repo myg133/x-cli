@@ -12,7 +12,10 @@ fn petstore_basic_metadata() {
     let spec = parse_openapi_str(PETSTORE).expect("parse petstore");
     assert_eq!(spec.title, "Pet Store API");
     assert_eq!(spec.version, "1.0.0");
-    assert_eq!(spec.base_url.as_deref(), Some("https://petstore.example.com/v1"));
+    assert_eq!(
+        spec.base_url.as_deref(),
+        Some("https://petstore.example.com/v1")
+    );
     assert!(
         spec.description.as_deref().unwrap().contains("极简示例"),
         "description should contain 极简示例"
@@ -29,23 +32,36 @@ fn petstore_endpoint_count_and_id_pattern() {
     for id in spec.endpoints.keys() {
         let s = id.as_str();
         assert!(s.contains("__"), "id should contain separator: {s}");
-        assert!(!s.contains('{') && !s.contains('}'), "id should be path-flattened: {s}");
+        assert!(
+            !s.contains('{') && !s.contains('}'),
+            "id should be path-flattened: {s}"
+        );
     }
 
     // 关键 endpoint 存在
     assert!(spec.endpoints.contains_key("pet__get__pets_petId"));
     assert!(spec.endpoints.contains_key("pet__post__pets"));
     assert!(spec.endpoints.contains_key("store__post__store_orders"));
-    assert!(spec.endpoints.contains_key("store__get__store_orders_orderId"));
+    assert!(spec
+        .endpoints
+        .contains_key("store__get__store_orders_orderId"));
     assert!(spec.endpoints.contains_key("pet__get__pets"));
 }
 
 #[test]
 fn petstore_domains() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
-    let pet = spec.domains.iter().find(|d| d.name == "pet").expect("pet domain");
+    let pet = spec
+        .domains
+        .iter()
+        .find(|d| d.name == "pet")
+        .expect("pet domain");
     assert_eq!(pet.endpoint_ids.len(), 3);
-    let store = spec.domains.iter().find(|d| d.name == "store").expect("store domain");
+    let store = spec
+        .domains
+        .iter()
+        .find(|d| d.name == "store")
+        .expect("store domain");
     assert_eq!(store.endpoint_ids.len(), 2);
 }
 
@@ -82,10 +98,7 @@ fn petstore_request_body() {
 #[test]
 fn petstore_responses_parsed() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
-    let ep = spec
-        .endpoints
-        .get("pet__get__pets_petId")
-        .expect("getPet");
+    let ep = spec.endpoints.get("pet__get__pets_petId").expect("getPet");
     let statuses: Vec<u16> = ep.responses.iter().map(|r| r.status).collect();
     assert!(statuses.contains(&200));
     assert!(statuses.contains(&404));
@@ -135,10 +148,7 @@ fn petstore_request_body_resolves_pet_schema() {
 fn petstore_response_schema_also_resolves() {
     use x_cli_core::SchemaKind;
     let spec = parse_openapi_str(PETSTORE).expect("parse");
-    let ep = spec
-        .endpoints
-        .get("pet__get__pets_petId")
-        .expect("getPet");
+    let ep = spec.endpoints.get("pet__get__pets_petId").expect("getPet");
     let resp_200 = ep
         .responses
         .iter()
@@ -186,11 +196,7 @@ components:
 "#;
     let spec = parse_openapi_str(yaml).expect("parse");
     let ep = spec.endpoints.get("tree__get__tree").expect("getTree");
-    let r = ep
-        .responses
-        .iter()
-        .find(|r| r.status == 200)
-        .expect("200");
+    let r = ep.responses.iter().find(|r| r.status == 200).expect("200");
     let schema = r.schema.as_ref().expect("schema");
     let resolved = schema.resolved.as_ref().expect("resolved");
     assert_eq!(resolved.kind, x_cli_core::SchemaKind::Object);

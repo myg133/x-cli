@@ -188,7 +188,10 @@ steps:
     let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse resp");
     let result = v.get("result").expect("result field");
     assert_eq!(result.get("status").and_then(|s| s.as_str()), Some("ok"));
-    let steps = result.get("steps").and_then(|s| s.as_array()).expect("steps");
+    let steps = result
+        .get("steps")
+        .and_then(|s| s.as_array())
+        .expect("steps");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].get("status").and_then(|s| s.as_u64()), Some(200));
     assert_eq!(steps[1].get("status").and_then(|s| s.as_u64()), Some(200));
@@ -317,10 +320,16 @@ steps:
     let resp = run_rpc(spec_with_base(&base), wfs, &req).await;
     let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
     let result = v.get("result").expect("result");
-    let steps = result.get("steps").and_then(|s| s.as_array()).expect("steps");
+    let steps = result
+        .get("steps")
+        .and_then(|s| s.as_array())
+        .expect("steps");
 
     // 拓扑序：create (无依赖) 先，read 后
-    assert_eq!(steps[0].get("name").and_then(|n| n.as_str()), Some("create"));
+    assert_eq!(
+        steps[0].get("name").and_then(|n| n.as_str()),
+        Some("create")
+    );
     assert_eq!(steps[1].get("name").and_then(|n| n.as_str()), Some("read"));
 
     // 第一个 step 的 url 含 "first"
@@ -329,7 +338,10 @@ steps:
         .and_then(|b| b.get("url"))
         .and_then(|u| u.as_str())
         .expect("url");
-    assert!(first_url.contains("first"), "first step should be `create` (path=first), got: {first_url}");
+    assert!(
+        first_url.contains("first"),
+        "first step should be `create` (path=first), got: {first_url}"
+    );
 }
 
 #[tokio::test]
@@ -361,9 +373,15 @@ steps:
     let resp = run_rpc(spec_with_base(&base), wfs, &req).await;
     let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
     let result = v.get("result").expect("result");
-    let steps = result.get("steps").and_then(|s| s.as_array()).expect("steps");
+    let steps = result
+        .get("steps")
+        .and_then(|s| s.as_array())
+        .expect("steps");
     assert_eq!(steps[0].get("name").and_then(|n| n.as_str()), Some("first"));
-    assert_eq!(steps[1].get("name").and_then(|n| n.as_str()), Some("second"));
+    assert_eq!(
+        steps[1].get("name").and_then(|n| n.as_str()),
+        Some("second")
+    );
 }
 
 // ─────────────── H 阶段：认证 header 注入 ───────────────
@@ -405,7 +423,9 @@ async fn auth_bearer_token_is_injected_in_http_requests() {
                 };
                 let body = format!(
                     r#"{{"received_auth":"{}"}}"#,
-                    auth_line.replace("Authorization: ", "").replace("authorization: ", "")
+                    auth_line
+                        .replace("Authorization: ", "")
+                        .replace("authorization: ", "")
                 );
                 let resp = format!(
                     "HTTP/1.1 {} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -438,15 +458,11 @@ steps:
     // 1. 没 token：期待 401（executor 视 4xx 为 step failed，返回 error）
     let auth = build_auth_profile(&[], &[]).expect("build");
     let caller = HttpCaller::new(auth).expect("caller");
-    let resp = serve_then(
-        spec_with_base(&url),
-        wfs.clone(),
-        &req,
-        caller,
-    )
-    .await;
+    let resp = serve_then(spec_with_base(&url), wfs.clone(), &req, caller).await;
     let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
-    let error = v.get("error").expect("401 without token should produce error");
+    let error = v
+        .get("error")
+        .expect("401 without token should produce error");
     let code = error.get("code").and_then(|c| c.as_i64()).expect("code");
     assert_eq!(code, -32011, "should be WORKFLOW_STEP_FAILED");
     let data_status = error
@@ -472,8 +488,15 @@ steps:
         .expect("status");
     assert_eq!(first_status, 200, "with bearer should get 200");
     // body 里有 auth 回显
-    let body = steps[0].get("body").and_then(|b| b.get("received_auth")).and_then(|s| s.as_str()).expect("body.received_auth");
-    assert!(body.contains(expected), "body should echo auth header: {body}");
+    let body = steps[0]
+        .get("body")
+        .and_then(|b| b.get("received_auth"))
+        .and_then(|s| s.as_str())
+        .expect("body.received_auth");
+    assert!(
+        body.contains(expected),
+        "body should echo auth header: {body}"
+    );
 }
 
 #[tokio::test]
@@ -526,7 +549,11 @@ steps:
         v.get("error").is_some(),
         "wrong token should produce error response"
     );
-    let code = v.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()).expect("error code");
+    let code = v
+        .get("error")
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_i64())
+        .expect("error code");
     assert_eq!(code, -32011, "should be WORKFLOW_STEP_FAILED");
 }
 

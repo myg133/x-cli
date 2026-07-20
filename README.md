@@ -1,5 +1,10 @@
 # x-cli
 
+[![CI](https://github.com/myg133/x-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/myg133/x-cli/actions/workflows/ci.yml)
+[![Latest tag](https://img.shields.io/github/v/tag/myg133/x-cli)](https://github.com/myg133/x-cli/tags)
+[![License](https://img.shields.io/github/license/myg133/x-cli)](./LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org)
+
 **把后端 OpenAPI 转成 agent 可加载的 skill。**
 
 AI agent 通过 skill 调用外部工具，skill 内部通常用 CLI 命令落地。x-cli 的想法是：**让后端 OpenAPI 文档成为 skill 的单一来源**——读 OpenAPI、自动整理、生成多平台 skill 描述、agent 一加载就能调后端 HTTP。

@@ -28,7 +28,10 @@ async fn emits_skill_index_with_calling_convention() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
     let skill_md = std::fs::read_to_string(out.join("SKILL.md")).expect("read SKILL.md");
 
@@ -51,7 +54,10 @@ async fn emits_endpoint_files() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
     // 5 个端点文件
     for id in [
@@ -71,12 +77,13 @@ async fn endpoint_md_contains_python_invocation_example() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
-    let ep = std::fs::read_to_string(
-        out.join("endpoints").join("pet__get__pets_petId.md"),
-    )
-    .expect("read endpoint md");
+    let ep = std::fs::read_to_string(out.join("endpoints").join("pet__get__pets_petId.md"))
+        .expect("read endpoint md");
 
     // 必须含 python 调用示例
     assert!(ep.contains("```python"));
@@ -97,12 +104,13 @@ async fn endpoint_md_with_body_has_body_placeholder() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
-    let ep = std::fs::read_to_string(
-        out.join("endpoints").join("pet__post__pets.md"),
-    )
-    .expect("read post endpoint md");
+    let ep = std::fs::read_to_string(out.join("endpoints").join("pet__post__pets.md"))
+        .expect("read post endpoint md");
 
     assert!(ep.contains("**`POST /pets`**"));
     assert!(ep.contains("\"body\""));
@@ -114,7 +122,10 @@ async fn httpbin_emit_succeeds() {
     let spec = parse_openapi_str(HTTPBIN).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit httpbin");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit httpbin");
     assert!(out.join("SKILL.md").exists());
 }
 
@@ -125,21 +136,28 @@ async fn endpoint_with_request_body_renders_resolved_properties() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
-    let ep = std::fs::read_to_string(
-        out.join("endpoints").join("pet__post__pets.md"),
-    )
-    .expect("read post endpoint md");
+    let ep = std::fs::read_to_string(out.join("endpoints").join("pet__post__pets.md"))
+        .expect("read post endpoint md");
 
     // Pet 的属性必须出现在请求体 schema 表里
-    assert!(ep.contains("`id`"), "expected `id` field in request body schema");
+    assert!(
+        ep.contains("`id`"),
+        "expected `id` field in request body schema"
+    );
     assert!(ep.contains("`name`"), "expected `name` field");
     assert!(ep.contains("`tag`"), "expected `tag` field");
     // name 标记为必填
     assert!(ep.contains("name") && ep.contains("✅"));
     // 字段类型是 scalar（string）
-    assert!(ep.contains("`string`"), "expected scalar string type labels");
+    assert!(
+        ep.contains("`string`"),
+        "expected scalar string type labels"
+    );
 }
 
 #[tokio::test]
@@ -147,12 +165,13 @@ async fn response_schema_renders_too() {
     let spec = parse_openapi_str(PETSTORE).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
-    let ep = std::fs::read_to_string(
-        out.join("endpoints").join("pet__get__pets_petId.md"),
-    )
-    .expect("read getPet md");
+    let ep = std::fs::read_to_string(out.join("endpoints").join("pet__get__pets_petId.md"))
+        .expect("read getPet md");
 
     // 响应 200 schema 必须渲染 Pet 的字段
     assert!(ep.contains("响应 200"));
@@ -196,12 +215,13 @@ components:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit tree");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit tree");
 
-    let ep = std::fs::read_to_string(
-        out.join("endpoints").join("tree__get__tree.md"),
-    )
-    .expect("read tree md");
+    let ep = std::fs::read_to_string(out.join("endpoints").join("tree__get__tree.md"))
+        .expect("read tree md");
 
     assert!(ep.contains("`value`"));
     assert!(ep.contains("`children`"));
@@ -244,7 +264,12 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
+        .emit(
+            &spec,
+            std::slice::from_ref(&wf),
+            &out,
+            SkillFormat::Markdown,
+        )
         .await
         .expect("emit");
 
@@ -258,8 +283,12 @@ steps:
     assert_eq!(files.len(), 2, "expected 2 workflow files (md + yaml)");
 
     // 必须有 md 和 yaml
-    let has_md = files.iter().any(|f| f.path().extension().and_then(|s| s.to_str()) == Some("md"));
-    let has_yaml = files.iter().any(|f| f.path().extension().and_then(|s| s.to_str()) == Some("yaml"));
+    let has_md = files
+        .iter()
+        .any(|f| f.path().extension().and_then(|s| s.to_str()) == Some("md"));
+    let has_yaml = files
+        .iter()
+        .any(|f| f.path().extension().and_then(|s| s.to_str()) == Some("yaml"));
     assert!(has_md && has_yaml, "must have both .md and .yaml");
 
     // SKILL.md 必须含工作流段
@@ -294,7 +323,12 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
+        .emit(
+            &spec,
+            std::slice::from_ref(&wf),
+            &out,
+            SkillFormat::Markdown,
+        )
         .await
         .expect("emit");
 
@@ -333,12 +367,16 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&_spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
+        .emit(
+            &_spec,
+            std::slice::from_ref(&wf),
+            &out,
+            SkillFormat::Markdown,
+        )
         .await
         .expect("emit");
 
-    let body = std::fs::read_to_string(out.join("workflows").join("demo.md"))
-        .expect("read");
+    let body = std::fs::read_to_string(out.join("workflows").join("demo.md")).expect("read");
 
     // inputs 表格或 bullet 必须显式描述 $input.petId 引用
     assert!(
@@ -399,7 +437,10 @@ paths:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
     let body = std::fs::read_to_string(out.join("endpoints").join("things__get__things.md"))
         .expect("read");
@@ -456,10 +497,12 @@ paths:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
-    let body = std::fs::read_to_string(out.join("endpoints").join("x__get__x.md"))
-        .expect("read");
+    let body = std::fs::read_to_string(out.join("endpoints").join("x__get__x.md")).expect("read");
 
     // 200, 201, 202 三个 schema 一样 → 应该合并成 200-202
     assert!(
@@ -488,11 +531,17 @@ paths:
     let spec = parse_openapi_str(yaml).expect("parse");
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
-    emitter.emit(&spec, &[], &out, SkillFormat::Markdown).await.expect("emit");
+    emitter
+        .emit(&spec, &[], &out, SkillFormat::Markdown)
+        .await
+        .expect("emit");
 
     let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("read skill");
     // 显示用真名（保留空格）
-    assert!(skill.contains("`My Tag`"), "display name should be `My Tag`");
+    assert!(
+        skill.contains("`My Tag`"),
+        "display name should be `My Tag`"
+    );
     // 链接里要 URL 编码（%20）
     assert!(
         skill.contains("My%20Tag"),
@@ -500,7 +549,10 @@ paths:
     );
     // 文件名还是带空格（os 兼容的，不动）
     let file_path = out.join("endpoints").join("My Tag__get__things.md");
-    assert!(file_path.exists(), "actual file should still have space in name");
+    assert!(
+        file_path.exists(),
+        "actual file should still have space in name"
+    );
 }
 
 // ─────────────── E 阶段：Anthropic + OpenAI 格式 ───────────────
@@ -521,15 +573,25 @@ async fn anthropic_format_emits_skill_md_with_frontmatter() {
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_file())
         .collect();
-    assert_eq!(entries.len(), 1, "Anthropic mode should produce only SKILL.md");
+    assert_eq!(
+        entries.len(),
+        1,
+        "Anthropic mode should produce only SKILL.md"
+    );
 
     let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("read skill");
     // 必须有 YAML frontmatter
-    assert!(skill.starts_with("---\n"), "must start with YAML frontmatter");
+    assert!(
+        skill.starts_with("---\n"),
+        "must start with YAML frontmatter"
+    );
     assert!(skill.contains("name: Pet Store API"));
     assert!(skill.contains("description:"));
     // 不应该有分文件
-    assert!(!out.join("endpoints").exists(), "no endpoints/ dir in anthropic mode");
+    assert!(
+        !out.join("endpoints").exists(),
+        "no endpoints/ dir in anthropic mode"
+    );
 }
 
 #[tokio::test]
@@ -546,7 +608,10 @@ async fn anthropic_description_includes_domain_summary() {
     let skill = std::fs::read_to_string(out.join("SKILL.md")).expect("read");
     // description 应当包含端点数 + 业务域
     let in_frontmatter = skill.split("---\n").nth(1).expect("frontmatter");
-    assert!(in_frontmatter.contains("5 个接口"), "should mention endpoint count");
+    assert!(
+        in_frontmatter.contains("5 个接口"),
+        "should mention endpoint count"
+    );
     assert!(in_frontmatter.contains("pet") && in_frontmatter.contains("store"));
 }
 
@@ -566,7 +631,10 @@ async fn openai_format_emits_functions_json() {
     let v: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON");
 
     // 顶层是 { tools: [...] }
-    let tools = v.get("tools").and_then(|t| t.as_array()).expect("tools array");
+    let tools = v
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .expect("tools array");
     // 5 个 endpoint
     assert_eq!(tools.len(), 5, "5 endpoint = 5 tools");
 
@@ -592,10 +660,9 @@ async fn openai_format_required_params_marked() {
         .await
         .expect("emit");
 
-    let v: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(out.join("functions.json")).expect("read"),
-    )
-    .expect("parse");
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("functions.json")).expect("read"))
+            .expect("parse");
     let tools = v.get("tools").and_then(|t| t.as_array()).expect("tools");
 
     // 找 pet__get__pets_petId 这个 tool
@@ -636,14 +703,18 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::OpenAITools)
+        .emit(
+            &spec,
+            std::slice::from_ref(&wf),
+            &out,
+            SkillFormat::OpenAITools,
+        )
         .await
         .expect("emit");
 
-    let v: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(out.join("functions.json")).expect("read"),
-    )
-    .expect("parse");
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("functions.json")).expect("read"))
+            .expect("parse");
     let tools = v.get("tools").and_then(|t| t.as_array()).expect("tools");
 
     // 5 endpoints + 1 workflow = 6
@@ -652,7 +723,10 @@ steps:
         .iter()
         .filter_map(|t| t.get("function")?.get("name")?.as_str())
         .collect();
-    assert!(names.contains(&"workflow.create-and-read"), "workflow tool name: {names:?}");
+    assert!(
+        names.contains(&"workflow.create-and-read"),
+        "workflow tool name: {names:?}"
+    );
 }
 
 // ─────────────── F 阶段：depends_on 渲染 ───────────────
@@ -678,15 +752,25 @@ steps:
     let out = temp_out();
     let emitter = MarkdownEmitter::new();
     emitter
-        .emit(&spec, std::slice::from_ref(&wf), &out, SkillFormat::Markdown)
+        .emit(
+            &spec,
+            std::slice::from_ref(&wf),
+            &out,
+            SkillFormat::Markdown,
+        )
         .await
         .expect("emit");
 
-    let body = std::fs::read_to_string(out.join("workflows").join("with-deps.md"))
-        .expect("read");
+    let body = std::fs::read_to_string(out.join("workflows").join("with-deps.md")).expect("read");
 
     // 第一个 step 无依赖
-    assert!(body.contains("depends_on: —"), "first step should have no deps marker");
+    assert!(
+        body.contains("depends_on: —"),
+        "first step should have no deps marker"
+    );
     // 第二个 step 有依赖
-    assert!(body.contains("depends_on: first"), "second step should show dep on 'first'");
+    assert!(
+        body.contains("depends_on: first"),
+        "second step should show dep on 'first'"
+    );
 }
