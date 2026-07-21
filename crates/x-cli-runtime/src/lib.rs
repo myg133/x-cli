@@ -1,13 +1,13 @@
-//! x-cli-runtime: JSON-RPC over stdio 传输层 + HTTP 客户端
+//! x-cli-runtime: JSON-RPC over stdio 传输层 + HTTP 客户端 + Session auth
 
 #![warn(missing_docs)]
 
-pub mod auth;
 pub mod http;
+pub mod session;
 pub mod transport;
 pub mod workflow_executor;
 
-pub use auth::build_auth_profile;
-pub use http::{AuthProfile, HttpCaller};
+pub use http::HttpCaller;
+pub use session::Session;
 pub use transport::{serve, serve_stdio};
 pub use workflow_executor::WorkflowExecutor;

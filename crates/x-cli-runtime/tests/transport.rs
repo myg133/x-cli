@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::io::{duplex, AsyncWriteExt};
 use x_cli_core::ir::ApiSpec;
 use x_cli_core::parse_openapi_str;
-use x_cli_runtime::{serve, AuthProfile, HttpCaller};
+use x_cli_runtime::{serve, HttpCaller, Session};
 
 const PETSTORE: &str = include_str!("fixtures/petstore.yaml");
 
@@ -18,7 +18,7 @@ async fn round_trip(spec: Arc<ApiSpec>, request: &str) -> Vec<String> {
     let (mut client_write, server_read) = duplex(4096);
     let (server_write, mut client_read) = duplex(4096);
 
-    let caller = HttpCaller::new(AuthProfile::default()).expect("caller");
+    let caller = HttpCaller::new(Session::empty()).expect("caller");
     let serve_task = tokio::spawn(async move {
         serve(
             server_read,

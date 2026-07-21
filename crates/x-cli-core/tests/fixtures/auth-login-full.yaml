@@ -1,0 +1,19 @@
+version: 1
+token:
+  kind: login
+  request:
+    url: "https://api.example.com/auth/login"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+      X-Client: "x-cli/0.1"
+    body:
+      username: admin
+      password: secret
+  response:
+    token_path: "data.access_token"
+    expires_in_path: "data.expires_in"
+    refresh_token_path: "data.refresh_token"
+  refresh:
+    on_401: false
+    proactive: false

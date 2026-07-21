@@ -1,0 +1,4 @@
+version: 1
+token:
+  kind: bearer
+  bearer: "eyJhbGc.eyJzdWI.signature"

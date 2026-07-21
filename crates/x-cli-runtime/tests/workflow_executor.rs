@@ -13,7 +13,7 @@ use tokio::net::TcpListener;
 use x_cli_core::ir::{ApiSpec, Workflow};
 use x_cli_core::parse_openapi_str;
 use x_cli_core::parse_workflow_str;
-use x_cli_runtime::{serve, AuthProfile, HttpCaller};
+use x_cli_runtime::{serve, HttpCaller, Session};
 
 const HTTPBIN: &str = include_str!("fixtures/httpbin.yaml");
 
@@ -113,7 +113,7 @@ async fn run_rpc(
     workflows: BTreeMap<String, Arc<Workflow>>,
     request: &str,
 ) -> Vec<String> {
-    let caller = HttpCaller::new(AuthProfile::default()).expect("caller");
+    let caller = HttpCaller::new(Session::empty()).expect("caller");
     serve_then(spec, workflows, request, caller).await
 }
 
@@ -386,8 +386,6 @@ steps:
 
 // ─────────────── H 阶段：认证 header 注入 ───────────────
 
-use x_cli_runtime::build_auth_profile;
-
 #[tokio::test]
 async fn auth_bearer_token_is_injected_in_http_requests() {
     // spawn_auth_server：要求 Authorization: Bearer expected-token，否则 401
@@ -456,7 +454,7 @@ steps:
     );
 
     // 1. 没 token：期待 401（executor 视 4xx 为 step failed，返回 error）
-    let auth = build_auth_profile(&[], &[]).expect("build");
+    let auth = Session::from_cli_flags(&[], &[]).expect("build");
     let caller = HttpCaller::new(auth).expect("caller");
     let resp = serve_then(spec_with_base(&url), wfs.clone(), &req, caller).await;
     let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
@@ -473,7 +471,7 @@ steps:
     assert_eq!(data_status, 401, "server reported 401");
 
     // 2. 有正确 token：期待 200
-    let auth = build_auth_profile(&[expected.to_string()], &[]).expect("build");
+    let auth = Session::from_cli_flags(&[expected.to_string()], &[]).expect("build");
     let caller = HttpCaller::new(auth).expect("caller");
     let resp = serve_then(spec_with_base(&url), wfs, &req, caller).await;
     let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
@@ -540,7 +538,7 @@ steps:
         wf.name
     );
 
-    let auth = build_auth_profile(&["wrong-token".to_string()], &[]).expect("build");
+    let auth = Session::from_cli_flags(&["wrong-token".to_string()], &[]).expect("build");
     let caller = HttpCaller::new(auth).expect("caller");
     let resp = serve_then(spec_with_base(&url), wfs, &req, caller).await;
     let v: serde_json::Value = serde_json::from_str(&resp[0]).expect("parse");
@@ -612,7 +610,7 @@ steps:
         wf.name
     );
 
-    let auth = build_auth_profile(
+    let auth = Session::from_cli_flags(
         &[],
         &[format!("X-API-Key={api_key}"), "X-Tenant=acme".to_string()],
     )

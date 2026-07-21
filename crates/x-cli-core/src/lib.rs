@@ -4,12 +4,17 @@
 
 #![warn(missing_docs)]
 
+pub mod auth;
 pub mod error;
 pub mod ir;
 pub mod openapi;
 pub mod protocol;
 pub mod workflow;
 
+pub use auth::{
+    parse_auth_config_str, AuthConfig, AuthParseError, LoginConfig, LoginRequest, LoginResponse,
+    RefreshConfig, TokenSource,
+};
 pub use error::{Error, Result};
 pub use ir::{
     ApiSpec, Domain, Endpoint, HttpMethod, InputRef, Param, ParamLocation, RequestBody,

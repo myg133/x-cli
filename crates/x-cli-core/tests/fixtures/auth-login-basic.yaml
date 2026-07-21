@@ -1,0 +1,8 @@
+version: 1
+token:
+  kind: login
+  request:
+    body:
+      username: admin
+      password: admin
+  response: {}

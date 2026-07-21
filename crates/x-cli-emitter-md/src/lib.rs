@@ -118,6 +118,10 @@ impl MarkdownEmitter {
             }
         }
 
+        // auth.example.yaml 模板（in git）与 .gitignore
+        fs::write(out_dir.join("auth.example.yaml"), AUTH_EXAMPLE_YAML)
+            .context("write auth.example.yaml")?;
+        fs::write(out_dir.join(".gitignore"), SKILL_GITIGNORE).context("write .gitignore")?;
         Ok(())
     }
 
@@ -130,6 +134,9 @@ impl MarkdownEmitter {
     ) -> Result<()> {
         let skill = render_anthropic_skill(spec, workflows);
         fs::write(out_dir.join("SKILL.md"), skill).context("write SKILL.md")?;
+        // auth.example.yaml 同样需要（agent 加载后可能要配 auth）
+        fs::write(out_dir.join("auth.example.yaml"), AUTH_EXAMPLE_YAML)
+            .context("write auth.example.yaml")?;
         Ok(())
     }
 
@@ -150,9 +157,59 @@ impl MarkdownEmitter {
     }
 }
 
+/// `auth.example.yaml` 模板（in git，给用户 cp 为 auth.yaml 填 creds）
+pub const AUTH_EXAMPLE_YAML: &str = r#"# auth.yaml 示例 —— x-cli skill session bootstrap
+#
+# 用法：复制此文件为 auth.yaml，填上后端的登录信息。
+# auth.yaml 本身不进 git（明文 creds），本模板进 git。
+#
+# 详见项目根 AGENTS.md 以及 meta-skill 的 scope.md / auth-patterns.md。
+version: 1
+token:
+  # 选项 A：静态 token（等价 --auth-bearer）
+  # kind: bearer
+  # bearer: "eyJhbGc..."
+
+  # 选项 B：启动时自动登录（推荐）
+  # 注意：serde flatten 让 LoginConfig 字段内联到 token 下面，没有 login: 包装
+  kind: login
+  request:
+    # 缺省 = 用 skill 的 base-url 拼 /login
+    # url: "https://api.example.com/api/v1/security/login"
+    method: POST
+    headers:
+      Content-Type: application/json
+    body:
+      # 明文 creds —— dev/demo 限定
+      username: "admin"
+      password: "REPLACE_ME"
+  response:
+    # 默认 access_token；dotted path 表达嵌套字段
+    token_path: "access_token"
+    # expires_in_path: "expires_in"
+    # refresh_token_path: "refresh_token"
+  refresh:
+    # 401 时自动 re-login + retry，默认 true
+    on_401: true
+    # 主动 refresh 按 expires_in 提前续（v0.1 不实现）
+    proactive: false
+"#;
+
+/// skill 目录的 .gitignore 内容（进 git）
+pub const SKILL_GITIGNORE: &str = r#"# x-cli skill 产物归属本目录
+# 不进 git —— 是出口的业务 skill 产物
+auth.yaml
+.x-cli/
+generated/
+*.tmp
+"#;
+
 fn render_index(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     let mut s = String::new();
     s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
+    s.push_str(
+        "\n> 本 skill 支持 `auth.yaml` session bootstrap —— 如需登录后端，复制同目录下 `auth.example.yaml` 为 `auth.yaml` 填上 creds。scope 详见 meta-skill 的 `scope.md`。\n",
+    );
     s.push_str(&format!(
         "> 自动生成自 OpenAPI {}，由 x-cli 渲染。请勿手动修改。\n\n",
         spec.version
@@ -589,6 +646,9 @@ fn render_anthropic_skill(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     ));
     s.push_str("---\n\n");
     s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
+    s.push_str(
+        "\n> 本 skill 支持 `auth.yaml` session bootstrap —— 如需登录后端，复制同目录下 `auth.example.yaml` 为 `auth.yaml` 填上 creds。scope 详见 meta-skill 的 `scope.md`。\n",
+    );
     if let Some(desc) = &spec.description {
         s.push_str(&format!("{desc}\n\n"));
     }

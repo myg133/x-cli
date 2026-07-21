@@ -12,9 +12,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use x_cli_core::ir::{ApiSpec, Workflow};
+use x_cli_core::parse_auth_config_str;
 use x_cli_core::{parse_openapi, parse_workflow};
 use x_cli_emitter_md::{MarkdownEmitter, SkillEmitter, SkillFormat};
-use x_cli_runtime::{build_auth_profile, serve_stdio, AuthProfile, HttpCaller};
+use x_cli_runtime::{serve_stdio, HttpCaller, Session};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum SkillFormatArg {
@@ -187,14 +188,8 @@ async fn cmd_serve(
     }
 
     let base_url = base_url_override.or(spec.base_url.clone());
-    let auth = build_auth_profile(&auth_bearer, &auth_header)?;
-    let caller = HttpCaller::new(auth).context("build http caller")?;
-    if !auth_bearer.is_empty() || !auth_header.is_empty() {
-        println!(
-            "✓ 注入 {} 个认证 header",
-            auth_bearer.len() + auth_header.len()
-        );
-    }
+    let session = build_session(&skill, base_url.as_deref(), &auth_bearer, &auth_header).await?;
+    let caller = HttpCaller::new(session).context("build http caller")?;
     serve_stdio(Arc::new(spec), workflows, base_url, caller).await;
     Ok(())
 }
@@ -216,4 +211,34 @@ fn load_workflows(skill_dir: &std::path::Path) -> Result<BTreeMap<String, Arc<Wo
         out.insert(wf.name.clone(), Arc::new(wf));
     }
     Ok(out)
+}
+
+/// 构造 Session。优先级:`<skill>/auth.yaml` > CLI flag > 无 auth
+async fn build_session(
+    skill_dir: &std::path::Path,
+    base_url: Option<&str>,
+    auth_bearer: &[String],
+    auth_header: &[String],
+) -> Result<Session> {
+    let auth_yaml = skill_dir.join("auth.yaml");
+    if auth_yaml.exists() {
+        let raw = std::fs::read_to_string(&auth_yaml)
+            .with_context(|| format!("read {}", auth_yaml.display()))?;
+        let cfg = parse_auth_config_str(&raw)
+            .map_err(|e| anyhow::anyhow!("parse {}: {e}", auth_yaml.display()))?;
+        let session = Session::from_config(cfg, base_url.map(|s| s.to_string()))
+            .await
+            .with_context(|| format!("initial login via {}", auth_yaml.display()))?;
+        println!("✓ 从 {} 加载 session 配置", auth_yaml.display());
+        Ok(session)
+    } else if !auth_bearer.is_empty() || !auth_header.is_empty() {
+        let session = Session::from_cli_flags(auth_bearer, auth_header)?;
+        println!(
+            "✓ 注入 {} 个认证 header(来自 CLI flag)",
+            auth_bearer.len() + auth_header.len()
+        );
+        Ok(session)
+    } else {
+        Ok(Session::empty())
+    }
 }

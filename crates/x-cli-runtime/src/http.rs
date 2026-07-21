@@ -1,54 +1,44 @@
-//! HTTP 客户端
+//! HTTP 客户端 + 401 自动 retry
 //!
-//! A 阶段：reqwest + 一个 auth profile，后面 B 阶段加多 profile 切换、连接池配置、
-//! 请求/响应拦截器、mock 模式。
+//! HttpCaller 持有 [`Session`]（不是静态 AuthProfile）。每次调用：
+//! 1. 从 Session 拿当前 headers 快照
+//! 2. 发请求
+//! 3. 如果 401 且 Session 配置了 `refresh.on_401` → 调 `Session::handle_401`
+//!    成功 → 用新 headers 重试一次
+//!    失败 / 静态 auth → 直接把 401 返回给调用方
 
 use reqwest::{header::HeaderMap, header::HeaderName, header::HeaderValue, Method};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::time::Duration;
 use x_cli_core::ir::Endpoint;
 
-/// 鉴权 profile
-#[derive(Debug, Clone, Default)]
-pub struct AuthProfile {
-    /// 注入到所有请求头（如 Authorization: Bearer xxx）
-    pub headers: HashMap<String, String>,
-}
-
-impl AuthProfile {
-    /// 从环境变量构造
-    pub fn from_env(env_key: &str, header_name: &str, prefix: &str) -> Self {
-        let mut headers = HashMap::new();
-        if let Ok(v) = std::env::var(env_key) {
-            headers.insert(header_name.to_string(), format!("{prefix}{v}"));
-        }
-        Self { headers }
-    }
-}
+use crate::session::Session;
 
 /// HTTP 调用器
 #[derive(Clone)]
 pub struct HttpCaller {
     client: reqwest::Client,
-    auth: AuthProfile,
+    session: Session,
 }
 
 impl HttpCaller {
-    pub fn new(auth: AuthProfile) -> anyhow::Result<Self> {
+    /// 用 Session 构造
+    pub fn new(session: Session) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()?;
-        Ok(Self { client, auth })
+        Ok(Self { client, session })
+    }
+
+    /// 拿到 Session 的当前 headers
+    pub async fn session_headers(&self) -> std::collections::HashMap<String, String> {
+        self.session.headers().await
     }
 
     /// 调用 endpoint
     ///
-    /// `base_url` 一般是 `ApiSpec.base_url`。
-    /// `path_params` 替换 path 里的 `{xxx}`。
-    /// `query` 拼到 query string。
-    /// `headers` 合并到请求头，auth profile 优先级最低。
-    /// `body` 是 JSON，POST/PUT/PATCH 时使用。
+    /// `headers` 是 per-call 的额外 header（如 endpoint params 里的 header、agent 临时塞的），
+    /// 优先级高于 Session 默认 header。
     pub async fn call(
         &self,
         endpoint: &Endpoint,
@@ -58,70 +48,44 @@ impl HttpCaller {
         headers: &Value,
         body: Option<&Value>,
     ) -> anyhow::Result<HttpResponse> {
-        let method = match endpoint.method {
-            x_cli_core::ir::HttpMethod::Get => Method::GET,
-            x_cli_core::ir::HttpMethod::Post => Method::POST,
-            x_cli_core::ir::HttpMethod::Put => Method::PUT,
-            x_cli_core::ir::HttpMethod::Patch => Method::PATCH,
-            x_cli_core::ir::HttpMethod::Delete => Method::DELETE,
-            x_cli_core::ir::HttpMethod::Head => Method::HEAD,
-            x_cli_core::ir::HttpMethod::Options => Method::OPTIONS,
-        };
-
-        // 1. 拼 URL
+        let method = http_method(endpoint);
         let path = substitute_path(&endpoint.path, path_params);
         let url = match base_url {
             Some(b) => format!("{}{}", b.trim_end_matches('/'), path),
             None => path,
         };
+        let query_pairs = build_query_pairs(query);
+        let body_val = body.cloned();
 
-        // 2. 构造请求
-        let mut req = self.client.request(method, &url);
+        // 第一次请求
+        let header_map = self.build_headers(headers).await;
+        let mut resp = self
+            .send_once(&method, &url, &query_pairs, header_map, body_val.as_ref())
+            .await?;
 
-        // 3. query
-        if let Some(obj) = query.as_object() {
-            let mut pairs: Vec<(String, String)> = Vec::new();
-            for (k, v) in obj {
-                let s = match v {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                pairs.push((k.clone(), s));
-            }
-            req = req.query(&pairs);
+        // 401 retry —— 一次,被 Session 的 loop guard 兜底
+        if resp.status == 401 && self.session.handle_401().await? {
+            let header_map = self.build_headers(headers).await;
+            resp = self
+                .send_once(&method, &url, &query_pairs, header_map, body_val.as_ref())
+                .await?;
         }
+        Ok(resp)
+    }
 
-        // 4. headers: auth < endpoint < per-call
+    async fn build_headers(&self, per_call: &Value) -> HeaderMap {
         let mut header_map = HeaderMap::new();
-        for (k, v) in &self.auth.headers {
+        // 1. session headers（auth 兜底,优先级最低）
+        for (k, v) in self.session.headers().await {
             if let (Ok(name), Ok(val)) = (
                 HeaderName::from_bytes(k.as_bytes()),
-                HeaderValue::from_str(v),
+                HeaderValue::from_str(&v),
             ) {
                 header_map.insert(name, val);
             }
         }
-        // 端点参数里 location=Header 的也加进去
-        for p in &endpoint.params {
-            if matches!(p.location, x_cli_core::ir::ParamLocation::Header) {
-                if let Some(obj) = headers.as_object() {
-                    if let Some(v) = obj.get(&p.name) {
-                        let s = match v {
-                            Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        };
-                        if let (Ok(name), Ok(val)) = (
-                            HeaderName::from_bytes(p.name.as_bytes()),
-                            HeaderValue::from_str(&s),
-                        ) {
-                            header_map.insert(name, val);
-                        }
-                    }
-                }
-            }
-        }
-        // per-call 额外 headers
-        if let Some(obj) = headers.as_object() {
+        // 2. per-call headers（最高优先级,覆盖 session）
+        if let Some(obj) = per_call.as_object() {
             for (k, v) in obj {
                 if let (Ok(name), Ok(val)) = (
                     HeaderName::from_bytes(k.as_bytes()),
@@ -131,19 +95,27 @@ impl HttpCaller {
                 }
             }
         }
-        req = req.headers(header_map);
+        header_map
+    }
 
-        // 5. body
+    async fn send_once(
+        &self,
+        method: &Method,
+        url: &str,
+        query: &[(String, String)],
+        header_map: HeaderMap,
+        body: Option<&Value>,
+    ) -> anyhow::Result<HttpResponse> {
+        let mut req = self.client.request(method.clone(), url);
+        if !query.is_empty() {
+            req = req.query(query);
+        }
+        req = req.headers(header_map);
         if let Some(b) = body {
-            if !matches!(
-                endpoint.method,
-                x_cli_core::ir::HttpMethod::Get | x_cli_core::ir::HttpMethod::Head
-            ) {
+            if !matches!(method, &Method::GET | &Method::HEAD | &Method::OPTIONS) {
                 req = req.json(b);
             }
         }
-
-        // 6. 发请求
         let resp = req
             .send()
             .await
@@ -167,6 +139,32 @@ impl HttpCaller {
     }
 }
 
+fn http_method(endpoint: &Endpoint) -> Method {
+    match endpoint.method {
+        x_cli_core::ir::HttpMethod::Get => Method::GET,
+        x_cli_core::ir::HttpMethod::Post => Method::POST,
+        x_cli_core::ir::HttpMethod::Put => Method::PUT,
+        x_cli_core::ir::HttpMethod::Patch => Method::PATCH,
+        x_cli_core::ir::HttpMethod::Delete => Method::DELETE,
+        x_cli_core::ir::HttpMethod::Head => Method::HEAD,
+        x_cli_core::ir::HttpMethod::Options => Method::OPTIONS,
+    }
+}
+
+fn build_query_pairs(query: &Value) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    if let Some(obj) = query.as_object() {
+        for (k, v) in obj {
+            let s = match v {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            pairs.push((k.clone(), s));
+        }
+    }
+    pairs
+}
+
 /// HTTP 响应
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
@@ -175,7 +173,6 @@ pub struct HttpResponse {
     pub body: Value,
 }
 
-/// 把 `{xxx}` 替换成 path_params 里的值
 fn substitute_path(path: &str, params: &Value) -> String {
     let mut out = path.to_string();
     if let Some(obj) = params.as_object() {
