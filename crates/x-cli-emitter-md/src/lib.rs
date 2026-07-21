@@ -709,32 +709,64 @@ fn render_anthropic_skill(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     s
 }
 
-/// 构造 Anthropic 的 description 字段（让 Claude 知道何时加载这个 skill）
+/// 构造 skill 的 description 字段 —— Codex / Claude Code loader 据此判断何时加载
+///
+/// 设计原则:description 必须包含能让 agent **触发的关键词**:
+/// 1. 后端名(spec.title,这是用户最常说的名字 —— "调 Superset 接口")
+/// 2. 业务域 top 5(OpenAPI tag,作为业务范围线索)
+/// 3. 标准 CRUD 动词(查 / 改 / 删 / 创建)—— 用户描述需求时一定用
+/// 4. spec.description(OpenAPI info.description,可能含后端的用途说明)
 fn build_anthropic_description(spec: &ApiSpec, workflows: &[Workflow]) -> String {
-    let domain_names: Vec<&str> = spec
+    let title = &spec.title;
+    // 原样输出(Superset 写 v1,3.0 写 1.0.0),不动前缀
+    let version = spec.version.as_str();
+
+    // 业务域 top 5（有 description 用 description，否则用 name）
+    let domain_keywords: Vec<String> = spec
         .domains
         .iter()
-        .take(8)
-        .map(|d| d.name.as_str())
+        .take(5)
+        .map(|d| match &d.description {
+            Some(desc) if !desc.trim().is_empty() => desc.trim().to_string(),
+            _ => d.name.clone(),
+        })
         .collect();
-    let domain_phrase = if domain_names.is_empty() {
-        "通用 API".to_string()
+    let domain_phrase = if domain_keywords.is_empty() {
+        String::new()
     } else {
-        format!("覆盖 {} 等业务域", domain_names.join("、"))
+        format!("主要业务：{}。", domain_keywords.join("、"))
     };
+
     let workflow_phrase = if workflows.is_empty() {
         String::new()
     } else {
-        format!(" 包含 {} 个工作流（多步任务）。", workflows.len())
+        format!(" 已配 {} 个多步工作流。", workflows.len())
     };
-    let version = spec.version.trim_start_matches('v');
-    format!(
-        "API 版本 {}，{} 个接口，{}。{}当用户问及这些业务时使用此 skill。",
-        version,
-        spec.endpoints.len(),
-        domain_phrase,
-        workflow_phrase,
-    )
+
+    // OpenAPI 文档描述（可能为空）
+    let api_desc = spec.description.as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && s.len() <= 200);
+
+    // 合并为一个语义清晰、含触发关键词的 description
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        "调 {title} 后端 HTTP 接口（OpenAPI {version}，{count} 个接口）。",
+        title = title,
+        version = version,
+        count = spec.endpoints.len(),
+    ));
+    if let Some(desc) = api_desc {
+        parts.push(format!("{}。", desc));
+    }
+    parts.push(domain_phrase);
+    parts.push(workflow_phrase);
+    parts.push(format!(
+        "当用户要查 / 改 / 创建 / 删除 {title} 的数据时加载此 skill。",
+        title = title,
+    ));
+
+    parts.join("")
 }
 
 /// 共享的 skill frontmatter 生成器
