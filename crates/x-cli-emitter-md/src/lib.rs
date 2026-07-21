@@ -206,6 +206,9 @@ generated/
 
 fn render_index(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     let mut s = String::new();
+    // Codex / Claude Code skill loader 要求开头 YAML frontmatter ---
+    // name 用 kebab-case (Codex 的命名约定),description 描述何时加载
+    s.push_str(&render_skill_frontmatter(spec, workflows));
     s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
     s.push_str(
         "\n> 本 skill 支持 `auth.yaml` session bootstrap —— 如需登录后端，复制同目录下 `auth.example.yaml` 为 `auth.yaml` 填上 creds。scope 详见 meta-skill 的 `scope.md`。\n",
@@ -635,16 +638,7 @@ fn schema_type_label(schema: &SchemaRef) -> String {
 /// Anthropic SKILL.md：YAML frontmatter + 完整 API 描述（合并到一个文件）
 fn render_anthropic_skill(spec: &ApiSpec, workflows: &[Workflow]) -> String {
     let mut s = String::new();
-    s.push_str("---\n");
-    s.push_str(&format!(
-        "name: {}\n",
-        sanitize_for_frontmatter(&spec.title)
-    ));
-    s.push_str(&format!(
-        "description: {}\n",
-        build_anthropic_description(spec, workflows)
-    ));
-    s.push_str("---\n\n");
+    s.push_str(&render_skill_frontmatter(spec, workflows));
     s.push_str(&format!("# {} — x-cli skill\n\n", spec.title));
     s.push_str(
         "\n> 本 skill 支持 `auth.yaml` session bootstrap —— 如需登录后端，复制同目录下 `auth.example.yaml` 为 `auth.yaml` 填上 creds。scope 详见 meta-skill 的 `scope.md`。\n",
@@ -743,6 +737,39 @@ fn build_anthropic_description(spec: &ApiSpec, workflows: &[Workflow]) -> String
     )
 }
 
+/// 共享的 skill frontmatter 生成器
+/// Codex / Claude Code 都要求 SKILL.md 以 `---` 包起来的 YAML frontmatter 开头
+/// 本函数返回 `---\nname: ...\ndescription: ...\n---\n\n` 两行之间带换行
+fn render_skill_frontmatter(spec: &ApiSpec, workflows: &[Workflow]) -> String {
+    // name: kebab-case(例: "Superset API" -> "superset-api"),Codex / Claude Code 约定
+    let raw = spec.title.trim().to_lowercase();
+    let mut name = String::new();
+    let mut prev_dash = false;
+    for ch in raw.chars() {
+        if ch.is_alphanumeric() {
+            name.push(ch);
+            prev_dash = false;
+        } else if matches!(ch, ' ' | '-' | '_') {
+            if !prev_dash && !name.is_empty() {
+                name.push('-');
+                prev_dash = true;
+            }
+        }
+        // 其他字符丢弃
+    }
+    // 去尾部 - 不能以连字符结尾
+    while name.ends_with('-') { name.pop(); }
+    if name.is_empty() {
+        name = "x-cli-skill".to_string();
+    }
+
+    // description: 复用 Anthropic 那个生成函数(描述何时加载 + 接口数 + 业务域)
+    let description = build_anthropic_description(spec, workflows);
+
+    format!("---\nname: {}\ndescription: {}\n---\n\n", name, description)
+}
+
+/// frontmatter 值要简单（不能含 :、换行、引号）
 /// frontmatter 值要简单（不能含 :、换行、引号）
 fn sanitize_for_frontmatter(s: &str) -> String {
     s.replace(['\n', '\r', ':', '"'], " ")
