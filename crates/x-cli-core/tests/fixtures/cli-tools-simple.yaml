@@ -1,0 +1,86 @@
+# CLI 工具定义示例 — 覆盖主流模式
+tools:
+  - name: kubectl_get_pods
+    description: "列出指定命名空间的 Pod"
+    command: kubectl
+    subcommand: ["get", "pods"]
+    args:
+      - name: namespace
+        flag: --namespace
+        shorthand: "-n"
+        required: true
+        description: "Kubernetes 命名空间"
+        schema:
+          name: string
+          json_schema: {"type": "string"}
+    output: json
+
+  - name: kubectl_get_deployments
+    description: "列出指定命名空间的 Deployment"
+    command: kubectl
+    subcommand: ["get", "deployments"]
+    args:
+      - name: namespace
+        flag: --namespace
+        shorthand: "-n"
+        required: true
+        description: "Kubernetes 命名空间"
+        schema:
+          name: string
+          json_schema: {"type": "string"}
+      - name: all_namespaces
+        flag: --all-namespaces
+        type: boolean
+        description: "列出所有命名空间"
+        schema:
+          name: boolean
+          json_schema: {"type": "boolean"}
+    output: json
+
+  - name: docker_ps
+    description: "列出运行中的容器"
+    command: docker
+    subcommand: ["ps"]
+    args:
+      - name: all
+        flag: --all
+        shorthand: "-a"
+        description: "显示所有容器（含已停止的）"
+        schema:
+          name: boolean
+          json_schema: {"type": "boolean"}
+      - name: quiet
+        flag: --quiet
+        shorthand: "-q"
+        description: "只显示容器 ID"
+        schema:
+          name: boolean
+          json_schema: {"type": "boolean"}
+    output: json
+
+  - name: docker_logs
+    description: "查看容器日志"
+    command: docker
+    subcommand: ["logs"]
+    args:
+      - name: container
+        position: 0
+        required: true
+        description: "容器名称或 ID"
+        schema:
+          name: string
+          json_schema: {"type": "string"}
+      - name: tail
+        flag: --tail
+        description: "显示最后 N 行"
+        schema:
+          name: integer
+          json_schema: {"type": "integer"}
+      - name: follow
+        flag: --follow
+        shorthand: "-f"
+        description: "持续跟踪日志输出"
+        schema:
+          name: boolean
+          json_schema: {"type": "boolean"}
+    output: text

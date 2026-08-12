@@ -186,3 +186,37 @@ req = {
     },
 }
 ```
+
+## 7. 两层角色模式（规划中）
+
+x-cli 正在往 MCP 协议演进，分为两层使用：
+
+1. **Layer 1 — FDE 工程师**：用 meta-skill + x-cli 分析业务系统（OpenAPI / CLI），封装成业务 skill + MCP IR
+2. **Layer 2 — 业务用户**：加载 skill → `x serve --mcp` → 自然语言调业务工具
+
+CLI 工具的支持方式：FDE agent 分析 CLI 文档，按 `CliSpec` schema 写 YAML，x-cli 解析校验后 emit 进 MCP 工具列表。
+
+### 7.1 CLI 工具 CliSpec YAML 示例
+
+```yaml
+# agent 按这个 schema 写，x-cli 解析
+tools:
+  - name: kubectl_get_pods
+    description: "列出指定命名空间的 Pod"
+    command: kubectl
+    subcommand: ["get", "pods"]
+    args:
+      - name: namespace
+        flag: --namespace
+        shorthand: "-n"
+        required: true
+        schema:
+          name: string
+          json_schema: {"type": "string"}
+      - name: all_namespaces
+        flag: --all-namespaces
+        schema:
+          name: boolean
+          json_schema: {"type": "boolean"}
+    output: json
+```

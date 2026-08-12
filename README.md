@@ -5,26 +5,27 @@
 [![License](https://img.shields.io/github/license/myg133/x-cli)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org)
 
-**把后端 OpenAPI 转成 agent 可加载的 skill。**
+**把后端 OpenAPI / CLI 工具转成 agent 可加载的 skill，支持 MCP 协议。**
 
-AI agent 通过 skill 调用外部工具，skill 内部通常用 CLI 命令落地。x-cli 的想法是：**让后端 OpenAPI 文档成为 skill 的单一来源**——读 OpenAPI、自动整理、生成多平台 skill 描述、agent 一加载就能调后端 HTTP。
+AI agent 通过 skill 调用外部工具，skill 内部可以是 HTTP API 调用或 CLI 子进程执行。x-cli 的想法是：**把后端文档（OpenAPI / CLI）变成 agent 能直接用的工具**——分析、整理、生成多平台 skill 描述，agent 一加载就能调后端。
 
 ```
-   OpenAPI  ────►  IR (x-cli-core)
-   (yaml/json)        │
-                      ├─► Markdown skill  (给人看、agent 参考)
-                      ├─► Anthropic skill  (Claude 风格 frontmatter)
-                      └─► OpenAI tools     (function calling JSON)
-                                    │
-                                    └─►  agent 加载、调 x serve、调后端
+                    ┌─► Markdown skill        ← 给人读
+OpenAPI ──► x parse ┼─► Anthropic skill      ← Claude 系
+(yaml/json)     │   ├─► OpenAI tools         ← function calling
+                │   └─► MCP skill  [规划中]   ← MCP 协议
+                │            │
+CLI 文档 ──►    │    ┌──────┘
+(agent 写 YAML) └─► x emit ──► agent 加载 skill ──► x serve ──► 后端 / CLI
 ```
 
 ## 它解决什么
 
-- **作者侧**：给一份 OpenAPI → 自动生成 skill 目录
-- **运行侧**：agent 加载 skill 后，通过 stdio JSON-RPC 调 x-cli，x-cli 转发到后端
-- **多步场景**：用 `workflow.yaml` 描述多步任务（带 DAG 依赖、$input / $steps 引用），agent 一次 `workflow.run` 拿结果
-- **多平台**：三种输出格式（markdown / Anthropic / OpenAI tools）覆盖主流 agent 平台
+- **FDE 工程师**：用 meta-skill + x-cli 分析后端系统（OpenAPI / CLI），封装成业务 skill，交付给业务用户
+- **业务用户**：加载 skill → 启动 x-cli MCP 服务 → 通过 agent 自然语言完成业务目标
+- **多后端**：OpenAPI（已有）+ CLI 工具（规划中）统一 IR，统一 MCP 暴露
+- **多步场景**：用 `workflow.yaml` 描述多步任务（带 DAG 依赖、$input / $steps 引用），agent 一次调用拿结果
+- **多平台**：四种输出格式（markdown / Anthropic / OpenAI tools / MCP）覆盖主流 agent 平台
 
 ## 安装 / 构建
 
@@ -59,9 +60,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"call","params":{
 
 | 命令 | 作用 |
 |---|---|
-| `x parse <openapi>` | 解析并打印 IR（debug 用） |
-| `x emit <openapi> --out DIR [--workflow wf.yaml]... [--format md\|anthropic\|openai]` | 生成 skill 目录 |
+| `x parse <openapi>` | 解析 OpenAPI 并打印 IR（debug 用） |
+| `x emit <openapi> --out DIR [--workflow wf.yaml]... [--format md\|anthropic\|openai\|mcp] [--cli-tools cli.yaml]` | 生成 skill 目录 |
 | `x serve --skill DIR [--base-url URL]` | 启动 stdio JSON-RPC 服务 |
+| `x serve --skill DIR --mcp` | [规划中] 启动 stdio MCP 服务 |
+| `x serve --skill DIR --mcp --http :8080` | [规划中] 启动 HTTP Streamable MCP 服务 |
 
 ## 三种输出格式
 
@@ -250,9 +253,11 @@ steps:
 - ✅ **OAS 3.0 / 3.1** 兼容（自动 3.0 → 3.1 转换：`parameters[].content` → `parameters[].schema`）
 - ✅ **`$ref` 递归解析 + 循环引用** 不爆栈
 - ✅ **真实大文档**：Apache Superset（1.27 MB / 276 endpoint / 305 `$ref`）0.19 秒解析
-- ✅ **多 emitter**：3 种格式，1 个 binary
+- ✅ **多 emitter**：4 种格式（markdown / Anthropic / OpenAI tools / MCP[规划中]），1 个 binary
 - ✅ **workflow DAG**：依赖校验、环检测、拓扑执行
-- ✅ **60 个测试**，0 网络依赖（CI 友好），0.04 秒跑完
+- ✅ **CliSpec 解析** — FDE agent 按 schema 写 CLI 工具 YAML，x-cli 解析校验
+- ✅ **规划中** — MCP 协议（stdio + HTTP Streamable）、CLI 子进程执行
+- ✅ **45+ 个测试**，0 网络依赖（CI 友好），0.04 秒跑完
 
 ---
 
@@ -260,10 +265,11 @@ steps:
 
 ```
 crates/
-├── x-cli/                # 主二进制 x（emit / serve / parse）
-├── x-cli-core/           # IR + OpenAPI 解析 + protocol + workflow 解析
-├── x-cli-runtime/        # JSON-RPC transport + HTTP 客户端 + WorkflowExecutor
-└── x-cli-emitter-md/     # markdown / anthropic / openai 三种 emitter
+├── x-cli/                    # 主二进制 x（emit / serve / parse）
+├── x-cli-core/               # IR + OpenAPI/CliSpec/Workflow 解析 + protocol
+├── x-cli-runtime/            # JSON-RPC/MCP transport + HTTP 客户端 + CLI exec + WorkflowExecutor
+├── x-cli-emitter-md/         # markdown / anthropic / openai 三种 emitter
+└── x-cli-emitter-mcp/        # [规划中] MCP emitter
 ```
 
 依赖方向：`x-cli` → `{core, runtime, emitter-md}`，runtime 和 emitter 都基于 core 的 IR。
@@ -290,10 +296,13 @@ x emit examples/superset.json --out ./out/skill --format anthropic
 
 ## ABI 不变量
 
-x-cli 守住的两条不变量（保证后续改造不破坏 skill ↔ x-cli 协议）：
+x-cli 守住的几条不变量（保证后续改造不破坏 skill ↔ x-cli 协议）：
 
 1. **IR 独立 crate，emitter 用 trait 抽象** — 加 emitter 不改 core
-2. **skill ↔ x-cli 是 JSON-RPC over stdio** — 不是 CLI 拼参数串，给后续 sidecar / sandbox / 多 agent 留空间
+2. **skill ↔ x-cli 是 JSON-RPC / MCP over stdio** — 不是 CLI 拼参数串，给后续 sidecar / sandbox / 多 agent 留空间
+3. **`Endpoint.id` 稳定** — 依赖 id 匹配的已发布 skill 不会因升级中断
+4. **错误码稳定** — agent 端 hardcode 的 JSON-RPC 错误码不会变
+5. **`.x-cli/ir.json` 是 serve 加载 IR 的唯一入口** — 所有 emitter 必须写出这个文件
 
 ## License
 

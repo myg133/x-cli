@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 pub mod auth;
+pub mod cli_parser;
 pub mod error;
 pub mod ir;
 pub mod openapi;
@@ -15,11 +16,12 @@ pub use auth::{
     parse_auth_config_str, AuthConfig, AuthParseError, LoginConfig, LoginRequest, LoginResponse,
     RefreshConfig, TokenSource,
 };
+pub use cli_parser::{parse_cli_spec, parse_cli_spec_str};
 pub use error::{Error, Result};
 pub use ir::{
-    ApiSpec, Domain, Endpoint, HttpMethod, InputRef, Param, ParamLocation, RequestBody,
-    ResolvedSchema, Response, SchemaKind, SchemaRef, StepInputs, Workflow, WorkflowInput,
-    WorkflowStep,
+    ApiSpec, CliArg, CliOutputType, CliSpec, CliTool, Domain, Endpoint, HttpMethod, InputRef,
+    Param, ParamLocation, RequestBody, ResolvedSchema, Response, SchemaKind, SchemaRef,
+    StepInputs, Workflow, WorkflowInput, WorkflowStep,
 };
 pub use openapi::{parse_openapi, parse_openapi_str, parse_openapi_str_json};
 pub use protocol::{RpcError, RpcMethod, RpcRequest, RpcResponse};

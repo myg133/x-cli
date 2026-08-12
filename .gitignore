@@ -21,6 +21,13 @@ Cargo.lock.bak
 /generated
 /out
 
+# AI 工具工作目录
+.aionrs/
+.codegraph/
+.codex/
+.zread/
+packages/
+
 # 系统
 .DS_Store
 Thumbs.db

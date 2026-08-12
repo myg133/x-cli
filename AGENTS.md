@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 |---|---|
-| 是什么 | `x` CLI —— 把后端 OpenAPI 文档转成 agent 可加载的 skill |
+| 是什么 | `x` CLI —— 把后端 OpenAPI / CLI 工具转成 agent 可加载的 skill（支持 MCP 协议）|
 | Repo | `git@github.com:myg133/x-cli.git`（branch: `main`）|
 | 当前版本 | v0.1.0（已发 tag: v0.1-A → v0.1-H2，共 11 个）|
 | License | MIT OR Apache-2.0 |
@@ -16,20 +16,21 @@
 
 ## 工程结构
 
-Cargo workspace，4 个 crate。**依赖方向只向下指**（`x-cli` 是叶节点，`x-cli-core` 不依赖任何内部 crate）。
+Cargo workspace，4 个已实现 crate + 1 个规划中。**依赖方向只向下指**（`x-cli` 是叶节点，`x-cli-core` 不依赖任何内部 crate）。
 
 ```
 crates/
-├── x-cli/                # 二进制 x，CLI 入口（parse / emit / serve）
-├── x-cli-core/           # IR + OpenAPI 解析 + workflow 解析 + JSON-RPC schema
-├── x-cli-runtime/        # stdio JSON-RPC + HTTP 客户端 + workflow executor + auth
-└── x-cli-emitter-md/     # SkillEmitter trait + 3 个 impl
+├── x-cli/                    # 二进制 x，CLI 入口（parse / emit / serve）
+├── x-cli-core/               # IR + OpenAPI 解析 + workflow 解析 + CliSpec 解析 + JSON-RPC schema
+├── x-cli-runtime/            # stdio JSON-RPC / MCP + HTTP 客户端 + workflow executor + auth
+├── x-cli-emitter-md/         # SkillEmitter trait + 3 个 impl
+└── x-cli-emitter-mcp/        # [规划中] MCP emitter（工具定义 + 服务器配置）
 ```
 
 | crate | 角色 | 关键文件 |
 |---|---|---|
 | `x-cli` | CLI 入口（`clap` 子命令）| `src/main.rs` |
-| `x-cli-core` | 语义层，IR 全在这里 | `src/ir.rs`（数据模型）/ `openapi.rs`（OAS 解析 + 3.0→3.1 转换）/ `workflow.rs`（DAG 校验）/ `protocol.rs`（JSON-RPC + 错误码）/ `error.rs` |
+| `x-cli-core` | 语义层，IR 全在这里 | `src/ir.rs`（数据模型）/ `openapi.rs`（OAS 解析 + 3.0→3.1 转换）/ `cli_parser.rs`（CliSpec 解析）/ `workflow.rs`（DAG 校验）/ `protocol.rs`（JSON-RPC + 错误码）/ `error.rs` |
 | `x-cli-runtime` | 传输 + 执行 | `src/transport.rs`（`serve_stdio` + generic `serve<R,W>`）/ `http.rs`（`HttpCaller`）/ `workflow_executor.rs`（拓扑执行 + `InputRef` 解析）/ `auth.rs`（`AuthProfile`）|
 | `x-cli-emitter-md` | skill 渲染 | `src/lib.rs`（`SkillFormat` enum + `SkillEmitter` trait + `MarkdownEmitter`）|
 
@@ -106,13 +107,10 @@ CI 配置在 `.github/workflows/ci.yml`，矩阵 `ubuntu-latest` + `windows-late
 
 ## 任务速查
 
-### 加新 emitter（Cursor / MCP / Gemini / …）
+### 加新 emitter（MCP / Gemini / …）
 
-1. `x-cli-emitter-md/src/lib.rs` 加新 `impl SkillEmitter for XxxEmitter`（依赖很重就新建 crate）。
-2. `SkillFormat` enum 加新 variant + 调好 `Default`。
-3. `x-cli/src/main.rs` 的 `SkillFormatArg` + `From` impl 同步加。
-4. README "三种输出格式" 章节加示例。
-5. `x-cli-emitter-md/tests/emit.rs` 加测试。
+- **MCP emitter**：新建 `x-cli-emitter-mcp` crate，实现 `impl McpEmitter { pub async fn emit_mcp(...) }`。`McpEmitter` 不走现有的 `SkillEmitter` trait（因为需要同时接收 `ApiSpec` + `Workflow[]` + `CliSpec`），后续设计稳定后再考虑统一 trait。
+- **其他 emitter**：`x-cli-emitter-md/src/lib.rs` 加新 `impl SkillEmitter for XxxEmitter`（依赖很重就新建 crate），`SkillFormat` enum 加 variant。
 
 ### 加新 JSON-RPC method
 
@@ -168,6 +166,65 @@ echo '{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{
   "workflow":"买宠物并查询订单","inputs":{"petName":"fluffy"}
 }}' | .\target\release\x.exe serve --skill .\out/petstore-skill
 ```
+
+## MCP 化架构（规划中）
+
+x-cli 正在向 **MCP（Model Context Protocol）** 演进，分层设计：
+
+```
+Layer 1（分析构建层）──── FDE 工程师 + agent + meta-skill
+│
+├── OpenAPI spec   → x parse → ApiSpec IR
+├── CLI 文档       → agent 写 CliSpec YAML → x parse-cli-spec → CliSpec IR
+├── 业务逻辑设计   → agent 写 workflow.yaml
+│
+└── x emit --format mcp → 产出：
+    ├── mcp-tools.json     （MCP tool 定义）
+    ├── mcp-server.json    （连接配置）
+    └── .x-cli/ir.json     （runtime 加载用）
+                │
+                ▼
+Layer 2（运行层）────── 业务用户 + agent + x serve --mcp
+│
+├── agent 加载业务 skill（mcp-tools.json）
+├── x serve --mcp --skill <dir>  启动 MCP 服务器
+│   ├── stdio 传输（默认）
+│   └── HTTP Streamable [规划中]
+│
+└── agent 通过 MCP 协议调工具：
+    ├── tools/list → 返回所有 HTTP endpoints + CLI tools + workflows
+    └── tools/call → 执行 HTTP 调用或 CLI 子进程
+```
+
+### 新增 IR 类型
+
+`x-cli-core/src/ir.rs` 加了三个类型给 CLI 工具用：
+
+```rust
+pub struct CliSpec { pub tools: Vec<CliTool> }
+
+pub struct CliTool {
+    pub name: String,              // MCP tools/list 里的 name
+    pub description: Option<String>,
+    pub command: String,           // 可执行文件（如 kubectl）
+    pub subcommand: Vec<String>,   // ["get", "pods"]
+    pub args: Vec<CliArg>,
+    pub output: CliOutputType,
+}
+
+pub struct CliArg {
+    pub name: String,
+    pub flag: Option<String>,      // --namespace
+    pub shorthand: Option<String>, // -n
+    pub position: Option<u32>,     // 位置参数（与 flag 互斥）
+    pub required: bool,
+    pub default: Option<Value>,
+    pub schema: SchemaRef,
+    pub repeatable: bool,
+}
+```
+
+CliSpec YAML 由 **FDE 的 agent** 分析 CLI 文档后手工写，x-cli 只负责解析校验。
 
 ## "不要做" 清单
 

@@ -11,14 +11,16 @@
             │              │              │
             ▼              ▼              ▼
 ┌──────────────────┐ ┌─────────────┐ ┌─────────────────────┐
-│ x-cli-emitter-md │ │ x-cli-       │ │ x-cli-core           │
-│                  │ │   runtime   │ │                       │
-│  SkillEmitter    │ │             │ │  IR 数据模型         │
-│  trait impl:     │ │  HTTP       │ │  OpenAPI 解析        │
-│  - Markdown      │ │  Workflow   │ │  Workflow 解析       │
-│  - Anthropic     │ │  Executor   │ │  JSON-RPC schema     │
-│  - OpenAI tools  │ │  JSON-RPC   │ │  (serde types)       │
-│                  │ │  transport  │ │                       │
+│ x-cli-emitter-md/ │ │ x-cli-       │ │ x-cli-core           │
+│ x-cli-emitter-mcp │ │   runtime   │ │                       │
+│  [规划中]          │ │             │ │  IR 数据模型         │
+│                   │ │  HTTP       │ │  OpenAPI 解析        │
+│  SkillEmitter     │ │  CLI exec   │ │  CliSpec 解析        │
+│  trait impl:      │ │  Workflow   │ │  Workflow 解析       │
+│  - Markdown       │ │  Executor   │ │  JSON-RPC schema     │
+│  - Anthropic      │ │  JSON-RPC / │ │  (serde types)       │
+│  - OpenAI tools   │ │  MCP        │ │                       │
+│  - [MCP]          │ │  transport  │ │                       │
 └──────────────────┘ └─────────────┘ └─────────────────────┘
                               │              ▲
                               └──────────────┘
@@ -33,8 +35,9 @@ x-cli 的"语义层"。所有类型在这里定义，emitter 和 runtime 都基�
 
 ### 主要模块
 
-- `ir` — IR 数据模型（`ApiSpec` / `Domain` / `Endpoint` / `SchemaRef` / `ResolvedSchema` / `Workflow` / `WorkflowStep` / `InputRef`）
+- `ir` — IR 数据模型（`ApiSpec` / `Domain` / `Endpoint` / `SchemaRef` / `ResolvedSchema` / `Workflow` / `WorkflowStep` / `InputRef` / `CliSpec` / `CliTool` / `CliArg`）
 - `openapi` — OpenAPI 3 解析（`oas3` 库 + 自动 3.0 → 3.1 兼容转换）
+- `cli_parser` — CliSpec YAML 解析 + 校验（CLI 工具 IR 的入口）
 - `workflow` — workflow.yaml 解析 + 校验（依赖、环检测）
 - `protocol` — JSON-RPC schema（`RpcRequest` / `RpcResponse` / `RpcMethod` / `WorkflowRunParams` / `WorkflowRunResult` / error codes）
 - `error` — 错误类型
@@ -96,22 +99,62 @@ pub enum InputRef {
     StepOutput { step, path },          // $steps.<name>.<dotted.path>
     Static(String),                     // 其他 = 字面值
 }
+
+/// CLI 工具 IR（MCP 用）
+pub struct CliSpec {
+    pub tools: Vec<CliTool>,
+}
+
+pub struct CliTool {
+    pub name: String,              // MCP tools/list 里的 name
+    pub description: Option<String>,
+    pub command: String,           // 可执行文件（如 kubectl）
+    pub subcommand: Vec<String>,   // ["get", "pods"]
+    pub args: Vec<CliArg>,
+    pub output: CliOutputType,     // json / text / yaml / none
+}
+
+pub struct CliArg {
+    pub name: String,
+    pub description: Option<String>,
+    pub flag: Option<String>,      // --namespace（与 position 互斥）
+    pub shorthand: Option<String>, // -n
+    pub position: Option<u32>,     // 0-based（与 flag 互斥）
+    pub required: bool,
+    pub default: Option<Value>,
+    pub schema: SchemaRef,
+    pub repeatable: bool,          // -v -v -v
+}
+
+pub enum CliOutputType { Json, Text, Yaml, None }
 ```
 
 ## x-cli-runtime
 
-JSON-RPC over stdio + HTTP 客户端 + workflow 运行时。
+JSON-RPC / MCP over stdio + HTTP 客户端 + CLI 子进程执行 + workflow 运行时。
 
 ### 关键函数
 
 ```rust
-// stdio JSON-RPC 服务（agent 调这个）
+// stdio JSON-RPC 服务（x serve，已有）
 pub async fn serve_stdio(
     spec: Arc<ApiSpec>,
     workflows: BTreeMap<String, Arc<Workflow>>,
     base_url: Option<String>,
     caller: HttpCaller,
 );
+
+// MCP stdio 服务（x serve --mcp，规划中）
+pub async fn serve_mcp_stdio(
+    spec: Arc<ApiSpec>,
+    workflows: BTreeMap<String, Arc<Workflow>>,
+    cli_spec: Option<Arc<CliSpec>>,
+    base_url: Option<String>,
+    caller: HttpCaller,
+);
+
+// MCP HTTP Streamable 服务（x serve --mcp --http :8080，规划中）
+pub async fn serve_mcp_http(...);
 
 // 通用 reader/writer 版本（测试 + 未来 sidecar 模式）
 pub async fn serve<R, W>(reader: R, writer: W, ...)
@@ -167,6 +210,25 @@ pub trait SkillEmitter {
 | `ping` | — | `{ "pong": true }` | — |
 | `call` | `{ endpoint_id, path_params, query, headers, body }` | `{ status, headers, body }` | -32001 / -32002 |
 | `workflow.run` | `{ workflow, inputs }` | `{ status, steps[], outputs }` | -32010 / -32011 / -32012 |
+
+### MCP 协议映射（规划中）
+
+`x serve --mcp` 把 x-cli 的能力映射为标准 MCP methods：
+
+| MCP method | x-cli 映射 | 说明 |
+|---|---|---|
+| `initialize` | 返回 server info + capabilities | 握手 |
+| `tools/list` | 返回所有 HTTP endpoints + CLI tools + workflows | 每个 tool 的 `inputSchema` 由 IR 生成 |
+| `tools/call` | 分派到 HTTP call / workflow.run / CLI exec | 根据 tool name 前缀/命名空间路由 |
+
+CLI 工具的 `tools/call` 执行流程：
+```
+name: kubectl_get_pods
+args: {namespace: "prod", all_namespaces: true}
+→ 构造命令行: kubectl get pods -n prod --all-namespaces
+→ std::process::Command::new("kubectl")...
+→ 捕获 stdout → MCP content[{type: "text", text: "<stdout>"}]
+```
 
 ### 不变量
 

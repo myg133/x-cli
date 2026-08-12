@@ -271,3 +271,89 @@ impl InputRef {
         }
     }
 }
+
+// ─────────────── D 阶段：CLI 工具（MCP） ───────────────
+
+/// 一组 CLI 工具的 IR。
+///
+/// 由 FDE 的 agent 分析 CLI 文档后按此 schema 写 YAML，x-cli 解析后供 emitter 和 runtime 使用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliSpec {
+    /// CLI 工具列表
+    pub tools: Vec<CliTool>,
+}
+
+/// 单个 CLI 工具定义。
+///
+/// 覆盖主流 CLI 的 80% 使用场景：子命令 + 位置参数 + --flag/-s + 布尔开关。
+/// TUI（交互式）CLI 不在支持范围内。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliTool {
+    /// 工具唯一名字（MCP tools/list 里的 name）
+    pub name: String,
+    /// 工具描述（MCP tools/list 里的 description）
+    #[serde(default)]
+    pub description: Option<String>,
+    /// 可执行文件（如 `kubectl`、`docker`）
+    pub command: String,
+    /// 子命令路径（如 `["get", "pods"]`）
+    #[serde(default)]
+    pub subcommand: Vec<String>,
+    /// 参数定义
+    #[serde(default)]
+    pub args: Vec<CliArg>,
+    /// 输出格式（MCP runtime 用，决定如何解析 stdout）
+    #[serde(default)]
+    pub output: CliOutputType,
+}
+
+/// CLI 参数定义。
+///
+/// 每个参数可以是 --flag、-s（short）、或位置参数。
+/// 通过 `flag` / `shorthand` / `position` 三个字段表达，互斥。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliArg {
+    /// 参数名（用作 MCP inputSchema 里的属性名）
+    pub name: String,
+    /// 参数描述
+    #[serde(default)]
+    pub description: Option<String>,
+    /// 长参数名（如 `--namespace`）。与 `position` 互斥。
+    #[serde(default)]
+    pub flag: Option<String>,
+    /// 短参数名（如 `"-n"`）。仅与 `flag` 配合使用。
+    #[serde(default)]
+    pub shorthand: Option<String>,
+    /// 位置参数序号（0-based）。与 `flag` 互斥。
+    #[serde(default)]
+    pub position: Option<u32>,
+    /// 是否必填
+    #[serde(default)]
+    pub required: bool,
+    /// 默认值
+    #[serde(default)]
+    pub default: Option<serde_json::Value>,
+    /// 参数 schema 类型（复用 SchemaRef 的 json_schema）
+    #[serde(default = "SchemaRef::any")]
+    pub schema: SchemaRef,
+    /// 是否可重复（如 `-v -v -v`）
+    #[serde(default)]
+    pub repeatable: bool,
+}
+
+/// CLI 工具输出格式。
+///
+/// MCP runtime 根据此字段决定如何解析子进程 stdout。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CliOutputType {
+    /// stdout 是 JSON 格式（自动解析后返回结构化 content）
+    Json,
+    /// stdout 是纯文本（作为 text content 原样返回）
+    #[default]
+    Text,
+    /// stdout 是 YAML 格式
+    Yaml,
+    /// 无输出（只关心 exit code）
+    None,
+}
