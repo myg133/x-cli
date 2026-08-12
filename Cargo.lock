@@ -1686,6 +1686,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x-cli-core",
+ "x-cli-emitter-mcp",
  "x-cli-emitter-md",
  "x-cli-runtime",
 ]

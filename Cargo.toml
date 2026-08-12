@@ -19,6 +19,7 @@ license = "MIT OR Apache-2.0"
 x-cli-core = { path = "crates/x-cli-core" }
 x-cli-runtime = { path = "crates/x-cli-runtime" }
 x-cli-emitter-md = { path = "crates/x-cli-emitter-md" }
+x-cli-emitter-mcp = { path = "crates/x-cli-emitter-mcp" }
 
 # 第三方依赖（统一管理版本）
 serde = { version = "1", features = ["derive"] }
