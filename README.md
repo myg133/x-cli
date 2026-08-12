@@ -63,7 +63,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"call","params":{
 | `x parse <openapi>` | 解析 OpenAPI 并打印 IR（debug 用） |
 | `x emit <openapi> --out DIR [--workflow wf.yaml]... [--format md\|anthropic\|openai\|mcp] [--cli-tools cli.yaml]` | 生成 skill 目录 |
 | `x serve --skill DIR [--base-url URL]` | 启动 stdio JSON-RPC 服务 |
-| `x serve --skill DIR --mcp` | 启动 stdio MCP 服务 |
+| `x serve --skill DIR --mcp` | 启动 stdio MCP 服务（已实现） |
 | `x serve --skill DIR --mcp --http :8080` | 后期 启动 HTTP Streamable MCP 服务 |
 
 ## 三种输出格式
