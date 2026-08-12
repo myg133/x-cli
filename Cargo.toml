@@ -5,6 +5,7 @@ members = [
     "crates/x-cli-core",
     "crates/x-cli-runtime",
     "crates/x-cli-emitter-md",
+    "crates/x-cli-emitter-mcp",
 ]
 
 [workspace.package]

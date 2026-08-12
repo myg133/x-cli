@@ -13,7 +13,7 @@
 ┌──────────────────┐ ┌─────────────┐ ┌─────────────────────┐
 │ x-cli-emitter-md/ │ │ x-cli-       │ │ x-cli-core           │
 │ x-cli-emitter-mcp │ │   runtime   │ │                       │
-│  [规划中]          │ │             │ │  IR 数据模型         │
+│                   │ │             │ │  IR 数据模型         │
 │                   │ │  HTTP       │ │  OpenAPI 解析        │
 │  SkillEmitter     │ │  CLI exec   │ │  CliSpec 解析        │
 │  trait impl:      │ │  Workflow   │ │  Workflow 解析       │
@@ -144,7 +144,7 @@ pub async fn serve_stdio(
     caller: HttpCaller,
 );
 
-// MCP stdio 服务（x serve --mcp，规划中）
+// MCP stdio 服务（x serve --mcp）
 pub async fn serve_mcp_stdio(
     spec: Arc<ApiSpec>,
     workflows: BTreeMap<String, Arc<Workflow>>,
@@ -153,7 +153,7 @@ pub async fn serve_mcp_stdio(
     caller: HttpCaller,
 );
 
-// MCP HTTP Streamable 服务（x serve --mcp --http :8080，规划中）
+// MCP HTTP Streamable 服务（x serve --mcp --http :8080，后期）
 pub async fn serve_mcp_http(...);
 
 // 通用 reader/writer 版本（测试 + 未来 sidecar 模式）
@@ -211,7 +211,7 @@ pub trait SkillEmitter {
 | `call` | `{ endpoint_id, path_params, query, headers, body }` | `{ status, headers, body }` | -32001 / -32002 |
 | `workflow.run` | `{ workflow, inputs }` | `{ status, steps[], outputs }` | -32010 / -32011 / -32012 |
 
-### MCP 协议映射（规划中）
+### MCP 协议映射
 
 `x serve --mcp` 把 x-cli 的能力映射为标准 MCP methods：
 

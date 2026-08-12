@@ -1,0 +1,15 @@
+[package]
+name = "x-cli-emitter-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+x-cli-core = { path = "../x-cli-core" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

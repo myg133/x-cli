@@ -13,7 +13,7 @@ AI agent 通过 skill 调用外部工具，skill 内部可以是 HTTP API 调用
                     ┌─► Markdown skill        ← 给人读
 OpenAPI ──► x parse ┼─► Anthropic skill      ← Claude 系
 (yaml/json)     │   ├─► OpenAI tools         ← function calling
-                │   └─► MCP skill  [规划中]   ← MCP 协议
+                │   └─► MCP skill             ← MCP 协议
                 │            │
 CLI 文档 ──►    │    ┌──────┘
 (agent 写 YAML) └─► x emit ──► agent 加载 skill ──► x serve ──► 后端 / CLI
@@ -23,7 +23,7 @@ CLI 文档 ──►    │    ┌──────┘
 
 - **FDE 工程师**：用 meta-skill + x-cli 分析后端系统（OpenAPI / CLI），封装成业务 skill，交付给业务用户
 - **业务用户**：加载 skill → 启动 x-cli MCP 服务 → 通过 agent 自然语言完成业务目标
-- **多后端**：OpenAPI（已有）+ CLI 工具（规划中）统一 IR，统一 MCP 暴露
+- **多后端**：OpenAPI（已有）+ CLI 工具统一 IR，统一 MCP 暴露
 - **多步场景**：用 `workflow.yaml` 描述多步任务（带 DAG 依赖、$input / $steps 引用），agent 一次调用拿结果
 - **多平台**：四种输出格式（markdown / Anthropic / OpenAI tools / MCP）覆盖主流 agent 平台
 
@@ -63,8 +63,8 @@ echo '{"jsonrpc":"2.0","id":1,"method":"call","params":{
 | `x parse <openapi>` | 解析 OpenAPI 并打印 IR（debug 用） |
 | `x emit <openapi> --out DIR [--workflow wf.yaml]... [--format md\|anthropic\|openai\|mcp] [--cli-tools cli.yaml]` | 生成 skill 目录 |
 | `x serve --skill DIR [--base-url URL]` | 启动 stdio JSON-RPC 服务 |
-| `x serve --skill DIR --mcp` | [规划中] 启动 stdio MCP 服务 |
-| `x serve --skill DIR --mcp --http :8080` | [规划中] 启动 HTTP Streamable MCP 服务 |
+| `x serve --skill DIR --mcp` | 启动 stdio MCP 服务 |
+| `x serve --skill DIR --mcp --http :8080` | 后期 启动 HTTP Streamable MCP 服务 |
 
 ## 三种输出格式
 
@@ -253,10 +253,10 @@ steps:
 - ✅ **OAS 3.0 / 3.1** 兼容（自动 3.0 → 3.1 转换：`parameters[].content` → `parameters[].schema`）
 - ✅ **`$ref` 递归解析 + 循环引用** 不爆栈
 - ✅ **真实大文档**：Apache Superset（1.27 MB / 276 endpoint / 305 `$ref`）0.19 秒解析
-- ✅ **多 emitter**：4 种格式（markdown / Anthropic / OpenAI tools / MCP[规划中]），1 个 binary
+- ✅ **多 emitter**：4 种格式（markdown / Anthropic / OpenAI tools / MCP），1 个 binary
 - ✅ **workflow DAG**：依赖校验、环检测、拓扑执行
 - ✅ **CliSpec 解析** — FDE agent 按 schema 写 CLI 工具 YAML，x-cli 解析校验
-- ✅ **规划中** — MCP 协议（stdio + HTTP Streamable）、CLI 子进程执行
+- ✅ **MCP emitter** — mcp-tools.json + 服务器配置（下一阶段：MCP transport）
 - ✅ **45+ 个测试**，0 网络依赖（CI 友好），0.04 秒跑完
 
 ---
@@ -269,7 +269,7 @@ crates/
 ├── x-cli-core/               # IR + OpenAPI/CliSpec/Workflow 解析 + protocol
 ├── x-cli-runtime/            # JSON-RPC/MCP transport + HTTP 客户端 + CLI exec + WorkflowExecutor
 ├── x-cli-emitter-md/         # markdown / anthropic / openai 三种 emitter
-└── x-cli-emitter-mcp/        # [规划中] MCP emitter
+└── x-cli-emitter-mcp/         # MCP emitter
 ```
 
 依赖方向：`x-cli` → `{core, runtime, emitter-md}`，runtime 和 emitter 都基于 core 的 IR。

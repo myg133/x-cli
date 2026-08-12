@@ -16,7 +16,7 @@
 
 ## 工程结构
 
-Cargo workspace，4 个已实现 crate + 1 个规划中。**依赖方向只向下指**（`x-cli` 是叶节点，`x-cli-core` 不依赖任何内部 crate）。
+Cargo workspace，5 个 crate。**依赖方向只向下指**（`x-cli` 是叶节点，`x-cli-core` 不依赖任何内部 crate）。
 
 ```
 crates/
@@ -24,7 +24,7 @@ crates/
 ├── x-cli-core/               # IR + OpenAPI 解析 + workflow 解析 + CliSpec 解析 + JSON-RPC schema
 ├── x-cli-runtime/            # stdio JSON-RPC / MCP + HTTP 客户端 + workflow executor + auth
 ├── x-cli-emitter-md/         # SkillEmitter trait + 3 个 impl
-└── x-cli-emitter-mcp/        # [规划中] MCP emitter（工具定义 + 服务器配置）
+└── x-cli-emitter-mcp/         # MCP emitter（mcp-tools.json + 服务器配置）
 ```
 
 | crate | 角色 | 关键文件 |
@@ -167,7 +167,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{
 }}' | .\target\release\x.exe serve --skill .\out/petstore-skill
 ```
 
-## MCP 化架构（规划中）
+## MCP 化架构
 
 x-cli 正在向 **MCP（Model Context Protocol）** 演进，分层设计：
 
