@@ -19,7 +19,8 @@ Cargo.lock.bak
 
 # 生成的 skill 输出（按需保留）
 /generated
-/out
+/out/*
+!/out/x-cli-meta-skill/
 
 # AI 工具工作目录
 .aionrs/
