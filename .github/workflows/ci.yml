@@ -90,6 +90,7 @@ jobs:
         shell: bash
         run: |
           echo "node: $(node --version)"
+          npm install -g npm@latest
           echo "npm: $(npm --version)"
           echo "NPM_CONFIG_AUTH_TYPE: ${NPM_CONFIG_AUTH_TYPE:-<未设置>}"
           echo "npm config scope: $(npm config get scope 2>/dev/null || echo '<未设置>')"
@@ -104,6 +105,7 @@ jobs:
       - name: 收集三平台二进制 → 发布到 npm
         shell: bash
         run: |
+          npm install -g npm@latest
           echo "--- npm config list ---"
           npm config list
 
