@@ -277,10 +277,10 @@ x-cli 通过 npm 分发二进制，版本号以 `packages/x-cli-npm/package.json
 
 1. **更新版本号**：修改 `packages/x-cli-npm/package.json` 和 `Cargo.toml` 的 version 字段
 2. **提交 + 打 tag**：`git commit && git tag v0.1.X`
-3. **推送**：`git push --tags` → GitHub Actions release workflow 触发
-4. **CI 自动**：构建 3 平台二进制 → 发布 npm 平台子包 → 发布 npm 主包
+3. **推送**：`git push --tags` → GitHub Actions CI 触发（合并的 workflow，无需单独 release.yml）
+4. **CI 自动**：构建 3 平台二进制 → 发布 npm 平台子包 → 发布主包 → 创建 GitHub Release
 
-详见 [release.yml](/.github/workflows/release.yml)。
+详见 [ci.yml](/.github/workflows/ci.yml)。
 
 ## 实际能力验证
 
