@@ -1,101 +1,202 @@
 ---
 name: x-cli-skill-factory
 description: >-
-  当用户希望 agent 调 OpenAPI 后端 HTTP 接口（拿数据 / 测接口 / 调业务），或用户提供 OpenAPI 文档希望"造可调用的 skill"时使用此 skill。此 skill 教 agent 通过 npm 自动安装 x-cli 二进制到 PATH（pnpm install -g @myg133/x-cli），然后用裸 x 命令把任意 OpenAPI 3 后端转成 markdown / Anthropic / OpenAI tools / MCP 四种格式的 skill，并通过 stdio JSON-RPC 或 MCP 协议转发到后端 HTTP / CLI 子进程。**比 curl 优势：自动 schema 校验 / auth header 注入 / 错误结构化 / workflow 串联 / 多步 CLI 编排**。如果用户已经有现成的业务 skill 在 generated/，直接加载业务 skill 而非本 skill。
+  **x-cli 造 skill 的 meta-skill，用于 Layer 1（分析构建层）。** 当用户提供 OpenAPI / CLI 文档、
+  希望"让 agent 能调这个后端"时加载此 skill。此 skill 教 agent 如何分析后端文档、理解业务域、
+  设计 workflow 编排、编写 CliSpec，最后用 x emit 打包成业务 skill。**x 不是业务分析工具，是打包工具。
+  业务抽象（domain 划分、workflow 编排、CLI 封装）需要 agent 的智能参与。** 如果用户已经有现成的
+  业务 skill 在 generated/，直接加载业务 skill（Layer 2），而非本 skill。
 ---
 
 # x-cli skill factory
 
-> 这个 skill 不是调业务后端的，是**造业务 skill 的 + 教 agent 用 x 调 API**。agent 接到"调 X 后端接口 / 把 OpenAPI 转成 skill"的请求时，加载这个。
+> 这个 skill 不是调业务后端的，是**教 agent 造业务 skill + 设计业务抽象**的。
+> agent 接到"把 OpenAPI 转成 skill"的请求时，加载这个。
 
-## 立即执行（agent 第一步：装 binary）
+---
 
-本 skill 通过 **npm 分发 binary**。agent 接到本 skill 后**先**装 binary 到系统 PATH：
+## 两层架构速览
 
-```bash
-# 三个等价，挑一个
-pnpm install -g @myg133/x-cli
-# 或
-npm install -g @myg133/x-cli
-# 或
-yarn global add @myg133/x-cli
+```
+Layer 1（分析构建层）──── 你 + 这个 meta-skill
+│
+├── 用户提供 OpenAPI / CLI 文档
+├── 你分析文档，理解业务语义
+├── 你设计 domain 划分、workflow 编排
+├── 你写 workflow.yaml / CliSpec YAML
+├── 你用 x emit 打包 → 产出业务 skill 目录
+│
+                ▼
+Layer 2（运行层）────── 业务用户 + 业务 skill
+│
+├── 加载业务 skill
+├── x serve 启动 MCP 服务
+├── 通过 MCP 调业务工具完成目标
 ```
 
-**验证**：
+**你在这里扮演 Layer 1 的角色**——分析业务、设计抽象、用 x 打包。
+
+---
+
+## 第一步：装 binary
+
+```bash
+npm install -g @myg133/x-cli
+```
+
+验证：
 
 ```bash
 x --version
-# x 0.1.0
 ```
 
-如果 `x --version` 报"command not found" → **重开 shell**（PATH 修改对新 shell 才生效）。重开后**还**报 → 平台不支持（当前只 Windows x64；macOS/Linux 见 `packages/x-cli-npm/README.md`）。
+---
 
-**为什么必须装**：x-cli 不是 meta-skill 自带的 binary —— 单独走 npm 分发（`@myg133/x-cli` 包）。meta-skill 只装文档，binary 通过 npm 自动装到 `node_modules/.bin/x`（pnpm 设计上就在 PATH 里）。
+## 第二步：分析 OpenAPI，理解业务
+
+**不要直接 `x emit`**。先分析文档，理解业务结构。
+
+### 2.1 解析 OpenAPI 看 IR
+
+```bash
+x parse <openapi.yaml>
+```
+
+IR 会告诉你：
+- 有哪些 **domain**（业务域）
+- 每个 domain 下有哪些 **endpoint**
+- 每个 endpoint 的 method / path / 参数 / 响应
+
+### 2.2 识别业务域
+
+根据 IR 的 domain 划分，理解每个 domain 的业务含义：
+
+| OpenAPI tag | 业务域 | 典型操作 |
+|---|---|---|
+| `pet` | 宠物管理 | 增删改查宠物 |
+| `store` | 商店订单 | 下单、查库存、查订单 |
+| `user` | 用户管理 | 注册、登录、权限 |
+
+如果 OpenAPI 的 tag 划分不理想（比如所有接口都打了一个 tag），你需要**自己重新组织**业务域。
+
+### 2.3 设计业务编排（workflow）
+
+分析完业务域后，识别**哪些操作需要多步串联**：
+
+```
+例："买宠物" = 查库存 → 创建宠物 → 下单
+例："用户注册" = 创建用户 → 发验证邮件 → 返回 token
+```
+
+然后写 `workflow.yaml`：
+
+```yaml
+name: 买宠物并查询订单
+description: 先查宠物库存，有货就买，然后查订单状态
+steps:
+  - id: find_pet
+    endpoint: pet__get__/pet/{petId}
+    input:
+      petId: "$input.petId"
+  - id: place_order
+    endpoint: store__post__/store/order
+    depends_on: [find_pet]
+    input:
+      petId: "$steps.find_pet.id"
+      quantity: 1
+  - id: get_order
+    endpoint: store__get__/store/order/{orderId}
+    depends_on: [place_order]
+    input:
+      orderId: "$steps.place_order.id"
+output: "$steps.get_order"
+```
+
+**workflow 是业务抽象的核心**——它把多个原始 API 调用封装成一个业务操作，agent 在 Layer 2 调一次 `workflow.run` 就完成。
+
+---
+
+## 第三步：打包成业务 skill
+
+分析完业务、写好 workflow 后，用 `x emit` 打包：
+
+```bash
+# 基础用法
+x emit <openapi.yaml> --out ./generated/<name>-skill
+
+# 带 workflow（业务编排）
+x emit <openapi.yaml> --out ./generated/<name>-skill \
+    --workflow <workflow.yaml>
+
+# 带 CLI 工具（如 kubectl）
+x emit <openapi.yaml> --out ./generated/<name>-skill \
+    --workflow <workflow.yaml> \
+    --cli-tools <cli-tools.yaml>
+
+# 指定格式（默认四种格式全出）
+x emit <openapi.yaml> --out ./generated/<name>-skill \
+    --workflow <workflow.yaml> \
+    --format mcp
+```
+
+`x emit` 做的事：
+- 解析 OpenAPI 生成 IR
+- 把 workflow 嵌入 IR
+- 渲染 SKILL.md（业务 skill 入口）
+- 生成 mcp-tools.json（MCP 工具定义）
+- 输出 `.x-cli/ir.json`（serve 加载用）
+
+**它不做的事**（需要你来做）：
+- ❌ 不会分析业务域——你来做
+- ❌ 不会写 workflow——你来做
+- ❌ 不会设计业务抽象——你来做
+- ❌ 不会理解业务语义——你来做
+
+---
+
+## 第四步：验证生成的 skill
+
+打包后，验证业务 skill 是否可用：
+
+```bash
+# 查看 SKILL.md（业务 skill 入口）
+cat ./generated/<name>-skill/SKILL.md
+
+# 启动 MCP 服务测试
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+    x serve --skill ./generated/<name>-skill
+
+# 测试 workflow
+echo '{"jsonrpc":"2.0","id":2,"method":"workflow.run","params":{
+  "workflow":"买宠物并查询订单","inputs":{"petId":"1"}
+}}' | x serve --skill ./generated/<name>-skill
+```
+
+---
+
+## 第五步：交付
+
+把生成的业务 skill 目录路径告诉用户。用户（或业务 agent）在 Layer 2 加载这个 skill 即可使用。
+
+---
 
 ## 何时加载
 
 匹配以下任一即加载：
 
-- 用户提供了 OpenAPI 文件 / URL，并说"做 skill" / "转一下" / "让 agent 能调"
+- 用户提供 OpenAPI 文件 / URL，说"做 skill" / "让 agent 能调这个后端"
 - 用户说"用 x-cli 处理这个 OpenAPI"
 - 用户问"怎么把后端 OpenAPI 变成 agent skill"
-- 用户希望 agent 调 OpenAPI 后端 HTTP 接口（拿数据 / 测接口 / 调业务）—— **用 x 替代 curl**
 - 已有 skill 加载失败，用户说"重新生成" / "OpenAPI 变了，刷新一下"
 
 **不匹配**（不要加载）：
 
-- 用户已经有现成的业务 skill 目录（加载那个业务 skill —— 它知道自己怎么调）
+- 用户已经有现成的业务 skill 目录（加载那个业务 skill——它自己在 Layer 2 运行）
 - 用户只想跑一个**非 OpenAPI** 的 HTTP 请求（直接 curl 即可）
-- 用户问 x-cli 的实现细节（直接看项目根的 `ARCHITECTURE.md`）
-- 平台不是 Windows x64 且用户没装 Rust 工具链（x-cli npm 包只 Windows x64）
+- 用户问 x-cli 的实现细节（看项目根的 `ARCHITECTURE.md`）
+- 平台不是 Windows / Linux / macOS（x-cli npm 包支持这三平台）
 
-## 工作流（5 步）
-
-```
-OpenAPI 源 ──1──> emit skill ──2──> 选鉴权策略 ──3──> 起 serve ──4──> 验证 ──5──> 交付
-```
-
-1. **拿到 OpenAPI 源** —— URL 就 `curl` 下来；用户贴的就保存到临时文件；本地有就 `read_to_string` 确认能读。**如果需要支持 CLI 工具**（如 kubectl / docker），分析 CLI 文档后按 CliSpec schema 写 `cli-tools.yaml`（schema 见仓库 `crates/x-cli-core/src/ir.rs` 的 `CliSpec` / `CliTool` / `CliArg`）。
-2. **`x emit` 生成 skill 目录** —— 默认 `markdown` 格式；agent 平台是 Claude 用 `anthropic`；OpenAI 用 `openai`；**MCP 协议用 `--format mcp`**（统一输出 `mcp-tools.json` + `mcp-server.json`）。如果提供了 `cli-tools.yaml`，**加 `--cli-tools cli-tools.yaml`**。**任何 format 都会写 `.x-cli/ir.json`，serve 时要靠它**。**业务 skill 默认输出到 ./generated/<name>/**（可用 --out 覆盖,详见 distribution.md）。**v0.1+ emit 时还会写 auth.example.yaml 模板**（用户填 creds 后 cp 成 auth.yaml）。
-3. **配鉴权（如需）** —— 默认 auth.yaml 不存在 = 无 auth。需要登录就 cp auth.example.yaml auth.yaml + 填 token.login.request.url / body / response.token_path。**Agent 不写鉴权代码** —— token 拿 / 401 重试 / serve 重启全归 x-cli（scope 详见 scope.md，4 种 auth 模式见 auth-patterns.md）。
-4. **启动 `x serve`** —— 默认启动 JSON-RPC 服务；**MCP 模式加 `--mcp`**（初始化时 agent 发 `initialize` 握手，然后走 `tools/list` / `tools/call`）。如果 emit 时带了 CLI 工具，**MCP 模式下 `tools/call` 自动路由到 CLI 子进程**。**`serve` 是长跑进程，反复发请求都行**。
-5. **验证 + 交付** —— 跑一次 `ping`（JSON-RPC）或 `tools/list`（MCP）测连通；再跑一个真实 tool 验证；把生成的 skill 目录路径告诉用户。
-
-## 调 API 速查（最常用场景）
-
-如果你想调 API（不是造 skill），三步走：
-
-```bash
-# A) 默认 JSON-RPC 模式
-# 1. emit（造业务 skill，一次）
-x emit <openapi.yaml> --out ./generated/<name>-skill
-
-# 2. serve（启 JSON-RPC，长跑）
-x serve --skill ./generated/<name>-skill [--base-url URL] [--auth-bearer TOKEN]
-
-# 3. call（通过 stdin 发请求）
-
-# B) MCP 模式（推荐给 agent 使用）
-# 1. emit 时指定 MCP 格式 + 可选 CLI 工具
-x emit <openapi.yaml> --out ./generated/<name>-skill --format mcp --cli-tools cli-tools.yaml
-
-# 2. serve 用 MCP 协议
-x serve --mcp --skill ./generated/<name>-skill
-
-# 3. agent 通过 MCP 调 tools（tools/list → tools/call）
-echo '{"jsonrpc":"2.0","id":1,"method":"call","params":{"endpoint_id":"<id>","path_params":{}}}' | x serve --skill ./generated/<name>-skill
-```
-
-**对比 curl**：
-
-| 维度 | curl | x serve + x call |
-|---|---|---|
-| Schema 校验 | ❌ 自己写 | ✅ IR 里有完整 schema |
-| Auth header | ❌ 每次写 | ✅ serve 启动时注入 |
-| 错误结构化 | ❌ 解析 text | ✅ JSON-RPC error code + data |
-| Workflow 串联 | ❌ 手动串 | ✅ `workflow.run` 一次拿多步 |
-
-完整对比 + 反模式见 `commands.md` / `auth-patterns.md`。
+---
 
 ## 文件索引
 
@@ -103,38 +204,33 @@ echo '{"jsonrpc":"2.0","id":1,"method":"call","params":{"endpoint_id":"<id>","pa
 
 | 文件 | 何时读 |
 |---|---|
-| scope.md | **首次读 meta-skill 时先读** —— x-cli / agent / backend 三层边界 + session 生命周期 |
-| commands.md | 不确定某个 x-cli 子命令的 flag / 输出格式时 |
-| `auth-patterns.md` | 步骤 3 选鉴权策略时 |
-| `workflow-patterns.md` | 业务需要多步串联（不是单 endpoint）时 |
-| `troubleshooting.md` | 步骤 5 验证失败 / 401 / endpoint 找不到时 |
-| `distribution.md` | **首次拿到这个 skill 时**先读——知道怎么打包、怎么分发、业务 skill 输出到哪 |
+| `commands.md` | 不确定某个 x 子命令的 flag / 输出格式时 |
+| `auth-patterns.md` | 需要配置鉴权时 |
+| `workflow-patterns.md` | **写 workflow 前必读**——语法、依赖、$input / $steps 引用 |
+| `troubleshooting.md` | 验证失败 / 401 / endpoint 找不到时 |
+| `distribution.md` | 首次拿到这个 skill 时先读——知道怎么打包、怎么分发 |
 | `examples/1-petstore-no-auth.md` | 无 auth 的最简参考实现 |
-| `examples/2-superset-jwt.md` | JWT 鉴权 + base URL override 范例（**最常见**）|
-| `examples/3-httpbin-workflow.md` | workflow.yaml 多步范例 |
+| `examples/3-httpbin-workflow.md` | workflow.yaml 多步范例（**写 workflow 前必看**）|
 | `examples/4-large-spec.md` | 1MB+ / 200+ endpoint 的大文档注意事项 |
-| `examples/5-auth-yaml.md` | **v0.1 推荐**：auth.yaml 自动登录 + 401 retry 端到端 |
+
+---
 
 ## 关键约束
 
-- **binary 通过 npm 装**，不是 meta-skill 自带。`pnpm install -g @myg133/x-cli` 后才能用 `x` 命令。
-- **当前只 Windows x64**。POSIX 上需要先 `cargo build --release` 或等 cross-compile CI。
-- **x-cli 的 OpenAPI 解析对 3.0 / 3.1 都支持**（3.0 自动转 3.1，query/header schema 不会丢）。`oas3 0.16` 按 3.1 解析。
-- **`$ref` 循环引用自动检测**，不会爆栈。Superset 实测 305 个 ref、0.19 秒解析。
-- **三种输出格式互不冲突**：可以同时 emit 三份喂给三种 agent。
-- **serve 是 stdio JSON-RPC**，stdout 数据 / stderr logging。**关闭 stdin = serve 退出**。
-- **自包含文档**：业务 skill 产物在 `generated/`。meta-skill 文档可独立分发，binary 走 npm。
+- **binary 通过 npm 装**，不是 meta-skill 自带
+- **x 是打包工具，不是业务分析工具**——业务抽象需要你来设计
+- **三种输出格式互不冲突**：可以同时 emit 多份喂给多种 agent
+- **serve 是 stdio JSON-RPC**，stdout 数据 / stderr logging。关闭 stdin = serve 退出
+- **业务 skill 产物默认在 `generated/`**，不进 git
+
+---
 
 ## 给 agent 的硬性提示
 
-1. **不要在测试 / fixture 里写真实网络调用**。所有验证用本地 mock server 或内联字符串。
-2. **不要给 x-cli-core 加 tokio/reqwest 依赖**。core 是同步纯计算层。
-3. **不要改 Endpoint.id 格式**（`<Domain>__<method>__<sanitized_path>`）。已发布的 skill 全靠这个 id。
-4. **不要改 JSON-RPC 错误码数值**。agent 端 hardcode 了这些码。
-5. **不要在 workflow.yaml 里写 token** —— token 进 git，泄漏风险。用 `serve --auth-bearer` 启动时注入。
-6. **不要纠结 meta-skill 里有没有 binary** —— binary 永远在 npm 包（`@myg133/x-cli`），不在 meta-skill 目录。
-7. **Agent 不要碰 token 生命周期**（不读 auth.yaml、不解析 401 重启 serve、不手写 curl 拿 token）—— 统一由 x-cli serve 按 auth.yaml 自动管理。三层 scope 划分详见 scope.md。
-
-## 业务逻辑推断（透明给 agent 看）
-
-这个 skill 的内容**一半来自 x-cli 项目文档**（commands / 错误码 / 工作流语法 —— 事实），**一半从项目示例 + README 推断**（典型后端模式 / 常见失败模式 / 排错套路 —— 经验）。当推断部分与实际后端不符时，以实际后端的 OpenAPI 文档为准。
+1. **不要直接 `x emit` 就完事**——先分析 OpenAPI、理解业务、写 workflow，再 emit
+2. **workflow 是业务抽象的核心**——把多个原始 API 调封装成一个业务操作
+3. **不要在 fixture 里写真实网络调用**——所有验证用本地 mock server
+4. **不要改 Endpoint.id 格式**（`<Domain>__<method>__<sanitized_path>`）——已发布的 skill 全靠这个 id
+5. **不要改 JSON-RPC 错误码数值**——agent 端 hardcode 了这些码
+6. **不要在 workflow.yaml 里写 token**——用 `serve --auth-bearer` 启动时注入
+7. **Agent 不要碰 token 生命周期**——统一由 x-cli serve 按 auth.yaml 自动管理
