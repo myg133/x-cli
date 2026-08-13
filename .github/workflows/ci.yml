@@ -84,6 +84,7 @@ jobs:
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
+          scope: '@myg133'
 
       - name: 调试 OIDC 环境
         shell: bash
@@ -100,15 +101,9 @@ jobs:
           echo "--- .npmrc 内容 ---"
           cat .npmrc 2>/dev/null || echo "(无 .npmrc)"
 
-      - name: 配置 scope + OIDC 登录 → 发布到 npm
+      - name: 收集三平台二进制 → 发布到 npm
         shell: bash
         run: |
-          # 配置 @myg133 scope 的 registry
-          npm config set @myg133:registry=https://registry.npmjs.org/
-
-          # OIDC 登录（非交互式，CI 环境自动用 OIDC token）
-          npm adduser --scope=@myg133 --auth-type=web
-
           echo "--- npm config list ---"
           npm config list
 
