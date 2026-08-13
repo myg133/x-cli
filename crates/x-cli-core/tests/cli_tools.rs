@@ -16,14 +16,22 @@ fn parse_fixture_produces_correct_count() {
 fn kubectl_tools_have_flag_args() {
     let spec: CliSpec = parse_cli_spec_str(FIXTURE).unwrap();
 
-    let get_pods = spec.tools.iter().find(|t| t.name == "kubectl_get_pods").unwrap();
+    let get_pods = spec
+        .tools
+        .iter()
+        .find(|t| t.name == "kubectl_get_pods")
+        .unwrap();
     assert_eq!(get_pods.command, "kubectl");
     assert_eq!(get_pods.subcommand, &["get", "pods"]);
     assert!(get_pods.args[0].flag.is_some());
     assert!(get_pods.args[0].required);
     assert_eq!(get_pods.output, CliOutputType::Json);
 
-    let get_deploy = spec.tools.iter().find(|t| t.name == "kubectl_get_deployments").unwrap();
+    let get_deploy = spec
+        .tools
+        .iter()
+        .find(|t| t.name == "kubectl_get_deployments")
+        .unwrap();
     assert_eq!(get_deploy.args.len(), 2);
     // first arg: --namespace (required)
     assert!(get_deploy.args[0].required);

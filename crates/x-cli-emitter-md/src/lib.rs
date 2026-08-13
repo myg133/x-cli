@@ -746,7 +746,9 @@ fn build_anthropic_description(spec: &ApiSpec, workflows: &[Workflow]) -> String
     };
 
     // OpenAPI 文档描述（可能为空）
-    let api_desc = spec.description.as_deref()
+    let api_desc = spec
+        .description
+        .as_deref()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty() && s.len() <= 200);
 
@@ -792,7 +794,9 @@ fn render_skill_frontmatter(spec: &ApiSpec, workflows: &[Workflow]) -> String {
         // 其他字符丢弃
     }
     // 去尾部 - 不能以连字符结尾
-    while name.ends_with('-') { name.pop(); }
+    while name.ends_with('-') {
+        name.pop();
+    }
     if name.is_empty() {
         name = "x-cli-skill".to_string();
     }

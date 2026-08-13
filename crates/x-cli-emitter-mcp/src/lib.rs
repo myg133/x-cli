@@ -117,12 +117,7 @@ impl McpEmitter {
             }
             .into(),
             command: "x".into(),
-            args: vec![
-                "serve".into(),
-                "--mcp".into(),
-                "--skill".into(),
-                ".".into(),
-            ],
+            args: vec!["serve".into(), "--mcp".into(), "--skill".into(), ".".into()],
         };
         let mcp_server_json =
             serde_json::to_string_pretty(&mcp_server).context("序列化 mcp-server.json")?;
@@ -218,19 +213,19 @@ fn build_workflow_tool(wf: &Workflow) -> serde_json::Value {
     let mut required = Vec::new();
 
     for input in &wf.inputs {
-        properties.insert(input.name.clone(), serde_json::json!({
-            "type": schema_type_to_mcp(&input.r#type),
-            "description": input.description.clone().unwrap_or_default(),
-        }));
+        properties.insert(
+            input.name.clone(),
+            serde_json::json!({
+                "type": schema_type_to_mcp(&input.r#type),
+                "description": input.description.clone().unwrap_or_default(),
+            }),
+        );
         if input.default.is_none() {
             required.push(input.name.clone());
         }
     }
 
-    let desc = wf
-        .description
-        .clone()
-        .unwrap_or_else(|| wf.name.clone());
+    let desc = wf.description.clone().unwrap_or_else(|| wf.name.clone());
 
     serde_json::json!({
         "name": format!("workflow.{}", wf.name),
@@ -469,17 +464,13 @@ tools:
 
         McpEmitter::emit_mcp(&spec, &workflows, Some(&cli_spec), dir.path()).unwrap();
 
-        let content =
-            std::fs::read_to_string(dir.path().join("mcp-tools.json")).unwrap();
+        let content = std::fs::read_to_string(dir.path().join("mcp-tools.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         let tools = parsed["tools"].as_array().unwrap();
         // 2 endpoints + 1 workflow + 1 cli tool
         assert_eq!(tools.len(), 4, "含 CLI 工具应有 4 个 tool");
 
-        let names: Vec<&str> = tools
-            .iter()
-            .map(|t| t["name"].as_str().unwrap())
-            .collect();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"kubectl_get_pods"));
         assert!(names.contains(&"workflow.买宠物并查询订单"));
     }

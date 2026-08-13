@@ -118,11 +118,7 @@ async fn mcp_tools_call_unknown_returns_error() {
     // 应该返回 error（endpoint not found）
     assert!(call_resp.contains("\"code\":"));
     // MCP 错误码: -32002 (Tool Execution Error)
-    assert!(
-        call_resp.contains("\"code\":-32002"),
-        "got: {}",
-        call_resp
-    );
+    assert!(call_resp.contains("\"code\":-32002"), "got: {}", call_resp);
 }
 
 #[tokio::test]
@@ -162,9 +158,7 @@ tools:
           json_schema: {"type": "string"}
     output: json
 "#;
-    let cli_spec = Arc::new(
-        x_cli_core::parse_cli_spec_str(cli_yaml).unwrap(),
-    );
+    let cli_spec = Arc::new(x_cli_core::parse_cli_spec_str(cli_yaml).unwrap());
 
     let resp = mcp_round_trip(
         spec(),
@@ -178,10 +172,7 @@ tools:
     assert_eq!(resp.len(), 2);
     let parsed: serde_json::Value = serde_json::from_str(&resp[1]).unwrap();
     let tools = parsed["result"]["tools"].as_array().unwrap();
-    let names: Vec<&str> = tools
-        .iter()
-        .map(|t| t["name"].as_str().unwrap())
-        .collect();
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(
         names.contains(&"kubectl_get_pods"),
         "tools 应包含 kubectl_get_pods, 实际有: {names:?}"

@@ -38,16 +38,7 @@ pub async fn serve_mcp_stdio(
 ) {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    serve_mcp(
-        stdin,
-        stdout,
-        spec,
-        workflows,
-        cli_spec,
-        base_url,
-        caller,
-    )
-    .await;
+    serve_mcp(stdin, stdout, spec, workflows, cli_spec, base_url, caller).await;
 }
 
 /// 在任意 reader/writer 上跑 MCP 服务（用于测试）。
@@ -80,7 +71,16 @@ pub async fn serve_mcp<R, W>(
             continue;
         }
 
-        match handle_mcp_line(line, &spec, &workflows, cli_spec.as_deref(), &executor, &mut initialized).await {
+        match handle_mcp_line(
+            line,
+            &spec,
+            &workflows,
+            cli_spec.as_deref(),
+            &executor,
+            &mut initialized,
+        )
+        .await
+        {
             Ok(Some(resp)) => {
                 if let Ok(json) = serde_json::to_string(&resp) {
                     let _ = writer.write_all(json.as_bytes()).await;
@@ -267,7 +267,10 @@ async fn handle_mcp_workflow_call(
         _ => Map::new(),
     };
 
-    let result = executor.run(wf_name, Value::Object(inputs)).await.map_err(|e| format!("{}: {}", e.code, e.message))?;
+    let result = executor
+        .run(wf_name, Value::Object(inputs))
+        .await
+        .map_err(|e| format!("{}: {}", e.code, e.message))?;
 
     Ok(vec![serde_json::json!({
         "type": "text",
@@ -335,7 +338,9 @@ fn handle_mcp_cli_call(
         cmd.arg(val);
     }
 
-    let output = cmd.output().map_err(|e| format!("failed to execute CLI: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("failed to execute CLI: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -409,10 +414,7 @@ fn build_mcp_tools(
             for arg in &ct.args {
                 let arg_schema = arg.schema.json_schema.clone();
                 let param_type = if !arg_schema.is_null() {
-                    arg_schema["type"]
-                        .as_str()
-                        .unwrap_or("string")
-                        .to_string()
+                    arg_schema["type"].as_str().unwrap_or("string").to_string()
                 } else {
                     schema_type_to_mcp(&arg.schema.name).to_string()
                 };
@@ -485,9 +487,7 @@ fn build_endpoint_description(ep: &x_cli_core::Endpoint) -> String {
 }
 
 /// 构建 endpoint 的 inputSchema properties。
-fn build_endpoint_input_schema(
-    ep: &x_cli_core::Endpoint,
-) -> (Map<String, Value>, Vec<String>) {
+fn build_endpoint_input_schema(ep: &x_cli_core::Endpoint) -> (Map<String, Value>, Vec<String>) {
     let mut properties = Map::new();
     let mut required = Vec::new();
 

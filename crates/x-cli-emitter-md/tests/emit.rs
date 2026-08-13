@@ -36,7 +36,10 @@ async fn emits_skill_index_with_calling_convention() {
     let skill_md = std::fs::read_to_string(out.join("SKILL.md")).expect("read SKILL.md");
 
     // 标题
-    assert!(skill_md.starts_with("---\n"), "markdown 格式必须以 YAML frontmatter 开头(Codex loader 要求)");
+    assert!(
+        skill_md.starts_with("---\n"),
+        "markdown 格式必须以 YAML frontmatter 开头(Codex loader 要求)"
+    );
     assert!(skill_md.contains("name: pet-store-api"));
     assert!(skill_md.contains("description:"));
     assert!(skill_md.contains("# Pet Store API — x-cli skill"));

@@ -29,25 +29,25 @@ fn validate_cli_spec(spec: &CliSpec) -> Result<()> {
         }
         // command 不能为空
         if tool.command.is_empty() {
-            return Err(Error::InvalidIr(
-                format!("CLI 工具 `{}` 的 command 不能为空", tool.name),
-            ));
+            return Err(Error::InvalidIr(format!(
+                "CLI 工具 `{}` 的 command 不能为空",
+                tool.name
+            )));
         }
         // 每个 arg：flag 和 position 不能同时存在
         for arg in &tool.args {
             if arg.flag.is_some() && arg.position.is_some() {
-                return Err(Error::InvalidIr(
-                    format!(
-                        "CLI 工具 `{}` 的参数 `{}` 不能同时有 flag 和 position",
-                        tool.name, arg.name
-                    ),
-                ));
+                return Err(Error::InvalidIr(format!(
+                    "CLI 工具 `{}` 的参数 `{}` 不能同时有 flag 和 position",
+                    tool.name, arg.name
+                )));
             }
             // name 不能为空
             if arg.name.is_empty() {
-                return Err(Error::InvalidIr(
-                    format!("CLI 工具 `{}` 有 nameless 参数", tool.name),
-                ));
+                return Err(Error::InvalidIr(format!(
+                    "CLI 工具 `{}` 有 nameless 参数",
+                    tool.name
+                )));
             }
         }
     }

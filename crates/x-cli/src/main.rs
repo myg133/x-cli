@@ -156,9 +156,10 @@ async fn cmd_emit(
 
     // 解析 CLI 工具（如果提供了）
     let cli_spec = if let Some(ref ct_path) = cli_tools {
-        Some(parse_cli_spec(ct_path).with_context(|| {
-            format!("parse cli-tools {}", ct_path.display())
-        })?)
+        Some(
+            parse_cli_spec(ct_path)
+                .with_context(|| format!("parse cli-tools {}", ct_path.display()))?,
+        )
     } else {
         None
     };
