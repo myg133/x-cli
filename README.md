@@ -29,6 +29,18 @@ CLI 文档 ──►    │    ┌──────┘
 
 ## 安装 / 构建
 
+### npm 安装（推荐）
+
+```bash
+npm install -g @myg133/x-cli
+# 或
+pnpm install -g @myg133/x-cli
+```
+
+npm 会自动检测平台并安装对应二进制（Windows x64 / Linux x64 / macOS ARM64）。
+
+### 从源码构建
+
 需要 Rust 1.75+。
 
 ```bash
@@ -247,6 +259,28 @@ steps:
 | -32012 | workflow 缺外部输入 |
 
 ---
+
+## npm 发布流程
+
+x-cli 通过 npm 分发二进制，版本号以 `packages/x-cli-npm/package.json` 为**单一事实源**。
+
+### 版本同步规则
+
+| 文件 | 版本来源 |
+|---|---|
+| `packages/x-cli-npm/package.json` | **事实源** — 手动维护 |
+| `Cargo.toml`（workspace） | 手动同步（与 npm 版本一致） |
+| 平台子包 `packages/*/package.json` | CI 自动注入 |
+| git tag | 手动打 `v<version>` |
+
+### 发布步骤
+
+1. **更新版本号**：修改 `packages/x-cli-npm/package.json` 和 `Cargo.toml` 的 version 字段
+2. **提交 + 打 tag**：`git commit && git tag v0.1.X`
+3. **推送**：`git push --tags` → GitHub Actions release workflow 触发
+4. **CI 自动**：构建 3 平台二进制 → 发布 npm 平台子包 → 发布 npm 主包
+
+详见 [release.yml](/.github/workflows/release.yml)。
 
 ## 实际能力验证
 

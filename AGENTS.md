@@ -36,6 +36,30 @@ crates/
 
 `lib.rs` 的 re-export 模式：`x-cli-core` 的 `lib.rs` 把所有公开类型 re-export（`pub use ir::ApiSpec`），**外部 crate 写 `use x_cli_core::ApiSpec` 而非 `x_cli_core::ir::ApiSpec`**。新加模块保持这个约定。
 
+## npm 发布
+
+x-cli 通过 npm 分发（`@myg133/x-cli`），采用平台子包模式：
+
+- **主包** `@myg133/x-cli` — `install.js` 做 bin entry，检测平台后 spawn 对应二进制
+- **平台子包** `@myg133/x-cli-{platform}-{arch}` — 每个包包含一个平台二进制，用 `os` + `cpu` 字段限制安装
+
+| 目录 | npm 包名 |
+|---|---|
+| `packages/x-cli-npm/` | `@myg133/x-cli`（单一事实源）|
+| `packages/x-cli-win32-x64/` | `@myg133/x-cli-win32-x64` |
+| `packages/x-cli-linux-x64/` | `@myg133/x-cli-linux-x64` |
+| `packages/x-cli-darwin-arm64/` | `@myg133/x-cli-darwin-arm64` |
+
+### 发布步骤
+
+1. 更新 `packages/x-cli-npm/package.json` 的 version 字段
+2. 同步更新 `Cargo.toml` workspace version
+3. `git commit && git tag v<version>`
+4. `git push --tags` → GitHub Actions release workflow 触发
+5. CI 自动构建 3 平台 → 发布平台子包 → 发布主包
+
+CI 配置: `.github/workflows/release.yml`（需要 `NPM_TOKEN` secret）。
+
 ## 跑命令
 
 ```bash

@@ -1,0 +1,40 @@
+{
+  "name": "@myg133/x-cli",
+  "version": "0.1.2",
+  "description": "x-cli: 把后端 OpenAPI 文档转成 agent 可加载的 skill",
+  "license": "MIT OR Apache-2.0",
+  "bin": {
+    "x": "install.js"
+  },
+  "optionalDependencies": {
+    "@myg133/x-cli-win32-x64": "0.1.2",
+    "@myg133/x-cli-linux-x64": "0.1.2",
+    "@myg133/x-cli-darwin-arm64": "0.1.2"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "install.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/myg133/x-cli.git",
+    "directory": "packages/x-cli-npm"
+  },
+  "keywords": [
+    "openapi",
+    "agent",
+    "skill",
+    "cli",
+    "json-rpc",
+    "mcp"
+  ],
+  "author": "myg133",
+  "bugs": {
+    "url": "https://github.com/myg133/x-cli/issues"
+  },
+  "homepage": "https://github.com/myg133/x-cli#readme"
+}

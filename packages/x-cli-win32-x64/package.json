@@ -1,0 +1,26 @@
+{
+  "name": "@myg133/x-cli-win32-x64",
+  "version": "0.1.2",
+  "description": "x-cli Windows x64 binary",
+  "license": "MIT OR Apache-2.0",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "bin": {
+    "x": "bin/x.exe"
+  },
+  "files": [
+    "bin/x.exe"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/myg133/x-cli.git",
+    "directory": "packages/x-cli-win32-x64"
+  },
+  "keywords": [
+    "openapi",
+    "agent",
+    "skill",
+    "cli"
+  ],
+  "author": "myg133"
+}

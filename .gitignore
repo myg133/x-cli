@@ -27,7 +27,9 @@ Cargo.lock.bak
 .codegraph/
 .codex/
 .zread/
-packages/
+# npm 包（元数据跟踪，二进制忽略）
+packages/**/bin/
+packages/**/*.exe
 
 # 系统
 .DS_Store
