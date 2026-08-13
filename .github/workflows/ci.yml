@@ -101,9 +101,6 @@ jobs:
 
           cd packages/x-cli-npm
           npm publish --access public
-        env:
-          # 支持通过 NPM_TOKEN secret 使用 classic token
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ──────────────────────────────────────────────
   # 创建 GitHub Release（仅打 tag 时触发）
