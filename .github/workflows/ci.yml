@@ -91,6 +91,8 @@ jobs:
           echo "node: $(node --version)"
           echo "npm: $(npm --version)"
           echo "NPM_CONFIG_AUTH_TYPE: ${NPM_CONFIG_AUTH_TYPE:-<未设置>}"
+          echo "npm config scope: $(npm config get scope 2>/dev/null || echo '<未设置>')"
+          echo "npm config @myg133:registry: $(npm config get @myg133:registry 2>/dev/null || echo '<未设置>')"
           echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN: $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo 可用 || echo 不可用)"
           echo "ACTIONS_ID_TOKEN_REQUEST_URL: ${ACTIONS_ID_TOKEN_REQUEST_URL:-<未设置>}"
           echo "--- npm config list ---"
@@ -98,9 +100,18 @@ jobs:
           echo "--- .npmrc 内容 ---"
           cat .npmrc 2>/dev/null || echo "(无 .npmrc)"
 
-      - name: 收集三平台二进制 → 发布到 npm
+      - name: 配置 scope + OIDC 登录 → 发布到 npm
         shell: bash
         run: |
+          # 配置 @myg133 scope 的 registry
+          npm config set @myg133:registry=https://registry.npmjs.org/
+
+          # OIDC 登录（非交互式，CI 环境自动用 OIDC token）
+          npm adduser --scope=@myg133 --auth-type=web
+
+          echo "--- npm config list ---"
+          npm config list
+
           VERSION=$(node -p "require('./packages/x-cli-npm/package.json').version")
           echo "版本: $VERSION"
 
