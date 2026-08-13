@@ -55,7 +55,7 @@ x-cli 通过 npm 分发（`@myg133/x-cli`），采用平台子包模式：
 4. `git push --tags` → GitHub Actions CI 触发
 5. CI 自动：测试 → 构建 3 平台二进制 → 发布到 npm → 创建 GitHub Release
 
-CI 配置: `.github/workflows/ci.yml`（需要 GitHub 仓库设置 `NPM_TOKEN` secret）。
+CI 配置: `.github/workflows/ci.yml`（使用 npm Trusted Publishers OIDC 认证，需在 npm 包配置）。
 
 ## 跑命令
 
