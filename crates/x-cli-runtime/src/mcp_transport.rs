@@ -5,8 +5,14 @@
 //! 实现 MCP 协议方法：
 //! - `initialize` — 握手
 //! - `notifications/initialized` — 客户端通知（无响应）
-//! - `tools/list` — 返回所有工具
-//! - `tools/call` — 执行工具（HTTP 调用 / workflow / CLI 子进程）
+//! - `tools/list` — 返回所有业务工具（workflow + CLI）
+//! - `tools/call` — 执行 workflow 或 CLI 工具
+//!
+//! # 设计原则
+//!
+//! MCP 对外只暴露**业务工具**（workflow），不直接暴露 HTTP endpoint。
+//! 没有 workflow 的 endpoint 会自动生成一个**透传 workflow**（pass-through），
+//! 让 agent 仍然可以调用，但感受不到底层 HTTP 细节。
 
 use crate::http::HttpCaller;
 use crate::workflow_executor::WorkflowExecutor;
@@ -15,7 +21,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing::debug;
-use x_cli_core::ir::{ApiSpec, CliSpec, ParamLocation, Workflow};
+use x_cli_core::ir::{ApiSpec, CliSpec, Endpoint, Workflow, WorkflowInput, WorkflowStep, StepInputs};
 use x_cli_core::protocol::{RpcError, RpcId, RpcResponse};
 
 // ── MCP 协议常量 ──
@@ -54,10 +60,13 @@ pub async fn serve_mcp<R, W>(
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    // 构建完整 workflows 映射：用户定义 + 自动生成透传
+    let all_workflows = build_all_workflows(&spec, &workflows);
+
     let mut lines = BufReader::new(reader).lines();
     let executor = Arc::new(WorkflowExecutor::new(
         spec.clone(),
-        workflows.clone(),
+        all_workflows.clone(),
         base_url.clone(),
         caller.clone(),
     ));
@@ -74,7 +83,7 @@ pub async fn serve_mcp<R, W>(
         match handle_mcp_line(
             line,
             &spec,
-            &workflows,
+            &all_workflows,
             cli_spec.as_deref(),
             &executor,
             &mut initialized,
@@ -115,7 +124,7 @@ pub async fn serve_mcp<R, W>(
 async fn handle_mcp_line(
     line: &str,
     spec: &ApiSpec,
-    workflows: &BTreeMap<String, Arc<Workflow>>,
+    all_workflows: &BTreeMap<String, Arc<Workflow>>,
     cli_spec: Option<&CliSpec>,
     executor: &Arc<WorkflowExecutor>,
     initialized: &mut bool,
@@ -128,12 +137,6 @@ async fn handle_mcp_line(
 
     let method = req["method"].as_str().unwrap_or("").to_string();
     let id = parse_mcp_id(line);
-
-    // 如果没有 id，是 notification，不需要回复
-    let _is_notification = match &id {
-        RpcId::Null => true,
-        _ => false,
-    };
 
     match method.as_str() {
         METHOD_INITIALIZE => {
@@ -157,12 +160,11 @@ async fn handle_mcp_line(
 
         NOTIF_INITIALIZED => {
             *initialized = true;
-            // notification，不回复
             Ok(None)
         }
 
         METHOD_TOOLS_LIST => {
-            let tools = build_mcp_tools(spec, workflows, cli_spec);
+            let tools = build_mcp_tools(spec, all_workflows, cli_spec);
             Ok(Some(RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
@@ -176,17 +178,17 @@ async fn handle_mcp_line(
             let name = params["name"].as_str().unwrap_or("").to_string();
             let arguments = params.get("arguments").unwrap_or(&Value::Null);
 
-            // 路由到对应的处理逻辑
-            let result = if name.starts_with("workflow.") {
+            // 路由：workflow 走 executor，CLI 工具直接执行
+            let result = if all_workflows.contains_key(&name) {
                 handle_mcp_workflow_call(&name, arguments, executor).await
             } else if let Some(cs) = cli_spec {
                 if cs.tools.iter().any(|t| t.name == name) {
                     handle_mcp_cli_call(&name, arguments, cli_spec)
                 } else {
-                    handle_mcp_http_call(&name, arguments, spec, executor).await
+                    Err(format!("tool not found: {name}"))
                 }
             } else {
-                handle_mcp_http_call(&name, arguments, spec, executor).await
+                Err(format!("tool not found: {name}"))
             };
 
             match result {
@@ -215,60 +217,21 @@ async fn handle_mcp_line(
     }
 }
 
-// ── tool 路由 ──
+// ── tool 执行 ──
 
-/// 处理 HTTP 工具调用。
-async fn handle_mcp_http_call(
-    name: &str,
-    arguments: &Value,
-    spec: &ApiSpec,
-    executor: &Arc<WorkflowExecutor>,
-) -> Result<Vec<Value>, String> {
-    let endpoint = spec
-        .endpoints
-        .get(name)
-        .ok_or_else(|| format!("endpoint not found: {name}"))?;
-
-    let path_params = Value::Object(extract_params(arguments, &endpoint.params, "path"));
-    let query = Value::Object(extract_params(arguments, &endpoint.params, "query"));
-    let headers = Value::Object(extract_params(arguments, &endpoint.params, "header"));
-    let body = arguments.get("body");
-
-    let result = executor
-        .http_caller()
-        .call(
-            endpoint,
-            executor.base_url().as_deref(),
-            &path_params,
-            &query,
-            &headers,
-            body,
-        )
-        .await
-        .map_err(|e| format!("{}", e))?;
-
-    Ok(vec![serde_json::json!({
-        "type": "text",
-        "text": result.body.to_string(),
-    })])
-}
-
-/// 处理 workflow 工具调用。
+/// 处理 workflow 工具调用（用户定义 + 自动生成透传）。
 async fn handle_mcp_workflow_call(
     name: &str,
     arguments: &Value,
     executor: &Arc<WorkflowExecutor>,
 ) -> Result<Vec<Value>, String> {
-    // name 格式: "workflow.<name>"
-    let wf_name = name.strip_prefix("workflow.").unwrap_or(name);
-
     let inputs = match arguments {
         Value::Object(map) => map.clone(),
         _ => Map::new(),
     };
 
     let result = executor
-        .run(wf_name, Value::Object(inputs))
+        .run(name, Value::Object(inputs))
         .await
         .map_err(|e| format!("{}: {}", e.code, e.message))?;
 
@@ -302,7 +265,6 @@ fn handle_mcp_cli_call(
         cmd.args(&tool.subcommand);
     }
 
-    // 处理 flag 参数
     for arg in &tool.args {
         if let Some(val) = args_map.get(&arg.name) {
             if let Some(flag) = &arg.flag {
@@ -311,17 +273,11 @@ fn handle_mcp_cli_call(
                     cmd.arg(s);
                 } else if let Value::Number(n) = val {
                     cmd.arg(n.to_string());
-                } else if let Value::Bool(b) = val {
-                    if !b {
-                        // 布尔 false 时去掉刚加的 flag
-                        // （"--verbose false" 不是标准做法，去掉）
-                    }
                 }
             }
         }
     }
 
-    // 处理位置参数（按 position 排序）
     let mut positional: Vec<(u32, &str)> = tool
         .args
         .iter()
@@ -356,31 +312,38 @@ fn handle_mcp_cli_call(
 
 // ── 构建 MCP tools 列表 ──
 
-/// 从 IR 构建 MCP tools 列表（用于 tools/list 响应）。
-fn build_mcp_tools(
+/// 构建完整的 workflows 映射：用户定义 + 自动生成透传。
+fn build_all_workflows(
     spec: &ApiSpec,
-    workflows: &BTreeMap<String, Arc<Workflow>>,
+    user_workflows: &BTreeMap<String, Arc<Workflow>>,
+) -> BTreeMap<String, Arc<Workflow>> {
+    let mut all = user_workflows.clone();
+
+    for ep in spec.endpoints.values() {
+        // 如果 endpoint 已经有 workflow（名称匹配），跳过
+        let ep_name = workflow_name_for_endpoint(ep);
+        if all.contains_key(&ep_name) {
+            continue;
+        }
+        // 自动生成透传 workflow
+        let wf = auto_generate_workflow(ep);
+        all.insert(ep_name, Arc::new(wf));
+    }
+
+    all
+}
+
+/// 从 IR 构建 MCP tools 列表（用于 tools/list 响应）。
+/// 只返回 workflow 和 CLI 工具，不直接暴露 endpoint。
+fn build_mcp_tools(
+    _spec: &ApiSpec,
+    all_workflows: &BTreeMap<String, Arc<Workflow>>,
     cli_spec: Option<&CliSpec>,
 ) -> Vec<Value> {
     let mut tools = Vec::new();
 
-    // HTTP endpoints
-    for ep in spec.endpoints.values() {
-        let (properties, required) = build_endpoint_input_schema(ep);
-        let desc = build_endpoint_description(ep);
-        tools.push(serde_json::json!({
-            "name": ep.id,
-            "description": desc,
-            "inputSchema": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            }
-        }));
-    }
-
-    // workflows
-    for wf in workflows.values() {
+    // workflows（用户定义 + 自动生成透传）
+    for wf in all_workflows.values() {
         let mut properties = Map::new();
         let mut required = Vec::new();
         for input in &wf.inputs {
@@ -396,7 +359,7 @@ fn build_mcp_tools(
             }
         }
         tools.push(serde_json::json!({
-            "name": format!("workflow.{}", wf.name),
+            "name": wf.name,
             "description": wf.description.clone().unwrap_or_else(|| wf.name.clone()),
             "inputSchema": {
                 "type": "object",
@@ -467,70 +430,103 @@ fn build_mcp_tools(
     tools
 }
 
+// ── 自动生成透传 workflow ──
+
+/// 为 endpoint 确定 workflow 名称。
+fn workflow_name_for_endpoint(ep: &Endpoint) -> String {
+    ep.summary
+        .as_deref()
+        .or(ep.operation_id.as_deref())
+        .unwrap_or(&ep.id)
+        .to_string()
+}
+
+/// 为没有 workflow 的 endpoint 自动生成透传 workflow。
+/// 这样 MCP 对外暴露的全是 workflow，agent 无需直接操作 endpoint。
+fn auto_generate_workflow(endpoint: &Endpoint) -> Workflow {
+    let name = workflow_name_for_endpoint(endpoint);
+    let description = format!("{} {}", http_method_str(&endpoint.method), endpoint.path);
+
+    // 从 endpoint 参数生成 workflow inputs
+    let mut inputs = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for p in &endpoint.params {
+        if seen.contains(&p.name) {
+            continue;
+        }
+        seen.insert(p.name.clone());
+        inputs.push(WorkflowInput {
+            name: p.name.clone(),
+            r#type: schema_type_to_mcp(&p.schema.name).to_string(),
+            description: p.description.clone(),
+            default: None,
+        });
+    }
+    // 如果有 request body，也加一个 input
+    if let Some(rb) = &endpoint.request_body {
+        if !seen.contains("body") {
+            seen.insert("body".to_string());
+            inputs.push(WorkflowInput {
+                name: "body".to_string(),
+                r#type: "object".to_string(),
+                description: Some(format!("请求体（{}）", rb.schema.name)),
+                default: None,
+            });
+        }
+    }
+
+    // 构建透传 step inputs（所有参数用 $input.xxx 引用）
+    let mut path_params = BTreeMap::new();
+    let mut query = BTreeMap::new();
+    let mut headers = BTreeMap::new();
+    let mut body = BTreeMap::new();
+    if endpoint.request_body.is_some() {
+        body.insert("_raw".to_string(), "$input.body".to_string());
+    }
+
+    for p in &endpoint.params {
+        let ref_val = format!("$input.{}", p.name);
+        match p.location {
+            x_cli_core::ParamLocation::Path => {
+                path_params.insert(p.name.clone(), ref_val);
+            }
+            x_cli_core::ParamLocation::Query => {
+                query.insert(p.name.clone(), ref_val);
+            }
+            x_cli_core::ParamLocation::Header => {
+                headers.insert(p.name.clone(), ref_val);
+            }
+            x_cli_core::ParamLocation::Cookie => {
+                headers.insert(p.name.clone(), ref_val);
+            }
+        }
+    }
+
+    let step = WorkflowStep {
+        name: "call".to_string(),
+        description: None,
+        endpoint: endpoint.id.clone(),
+        depends_on: vec![],
+        inputs: StepInputs {
+            path_params,
+            query,
+            headers,
+            body,
+        },
+    };
+
+    Workflow {
+        name,
+        description: Some(description),
+        inputs,
+        steps: vec![step],
+    }
+}
+
 // ── helper 函数 ──
 
-/// 构建 endpoint 描述文字。
-fn build_endpoint_description(ep: &x_cli_core::Endpoint) -> String {
-    let method = http_method_str(&ep.method);
-    let path = &ep.path;
-    let base = format!("{method} {path}");
-    if let Some(ref summary) = ep.summary {
-        format!("{base} — {summary}")
-            + &ep
-                .description
-                .as_ref()
-                .map(|d| format!("\n{d}"))
-                .unwrap_or_default()
-    } else {
-        base
-    }
-}
-
-/// 构建 endpoint 的 inputSchema properties。
-fn build_endpoint_input_schema(ep: &x_cli_core::Endpoint) -> (Map<String, Value>, Vec<String>) {
-    let mut properties = Map::new();
-    let mut required = Vec::new();
-
-    for p in &ep.params {
-        let ptype = if !p.schema.json_schema.is_null() {
-            p.schema.json_schema["type"]
-                .as_str()
-                .unwrap_or("string")
-                .to_string()
-        } else {
-            schema_type_to_mcp(&p.schema.name).to_string()
-        };
-
-        let desc = p.description.clone().unwrap_or_default();
-        properties.insert(
-            p.name.clone(),
-            serde_json::json!({
-                "type": ptype,
-                "description": desc,
-            }),
-        );
-        if p.required {
-            required.push(p.name.clone());
-        }
-    }
-
-    if let Some(rb) = &ep.request_body {
-        properties.insert(
-            "body".into(),
-            serde_json::json!({
-                "type": "object",
-                "description": rb.schema.name,
-            }),
-        );
-        if rb.required {
-            required.push("body".into());
-        }
-    }
-
-    (properties, required)
-}
-
 /// 从 arguments 中提取指定位置（path/query/header）的参数映射。
+#[allow(dead_code)]
 fn extract_params(
     arguments: &Value,
     params: &[x_cli_core::ir::Param],
@@ -544,9 +540,9 @@ fn extract_params(
 
     for p in params {
         let matches = match (&p.location, location) {
-            (ParamLocation::Path, "path") => true,
-            (ParamLocation::Query, "query") => true,
-            (ParamLocation::Header, "header") => true,
+            (x_cli_core::ParamLocation::Path, "path") => true,
+            (x_cli_core::ParamLocation::Query, "query") => true,
+            (x_cli_core::ParamLocation::Header, "header") => true,
             _ => false,
         };
         if matches {

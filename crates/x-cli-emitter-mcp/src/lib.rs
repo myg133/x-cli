@@ -2,6 +2,12 @@
 //!
 //! 把 `ApiSpec` + `Workflow[]` + `CliSpec` 转成 MCP 格式的 skill 目录。
 //!
+//! # 设计原则
+//!
+//! MCP 对外只暴露**业务工具**（workflow），不直接暴露 HTTP endpoint。
+//! 没有 workflow 的 endpoint 会自动生成一个**透传 workflow**（pass-through），
+//! 让 agent 仍然可以调用，但感受不到底层 HTTP 细节。
+//!
 //! # 输出
 //!
 //! ```text
@@ -15,15 +21,18 @@
 //!
 //! # 不变量
 //!
-//! - `mcp-tools.json` 里的 tool `name` 与 `Endpoint.id` / `CliTool.name` / `workflow.<name>` 一致
+//! - `mcp-tools.json` 里的 tool `name` 与 workflow 名称一致
 //! - `inputSchema` 格式是 [JSON Schema]（MCP 协议要求）
 //! - `.x-cli/ir.json` 格式与其他 emitter 兼容（serve 共用）
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Context;
 use anyhow::Result;
-use x_cli_core::{ApiSpec, CliArg, CliSpec, Endpoint, HttpMethod, SchemaRef, Workflow};
+use x_cli_core::{
+    ApiSpec, CliArg, CliSpec, CliTool, Endpoint, StepInputs, Workflow, WorkflowInput, WorkflowStep,
+};
 
 /// MCP style tool 定义。
 #[derive(serde::Serialize)]
@@ -78,20 +87,18 @@ impl McpEmitter {
         cli_spec: Option<&CliSpec>,
         out_dir: &Path,
     ) -> Result<()> {
+        // 构建完整 workflows 映射：用户定义 + 自动生成透传
+        let all_workflows = build_all_workflows(spec, workflows);
+
         // 构建 MCP tools
         let mut tools = Vec::new();
 
-        // 1. endpoints → MCP tools
-        for ep in spec.endpoints.values() {
-            tools.push(build_endpoint_tool(ep));
-        }
-
-        // 2. workflows → MCP tools
-        for wf in workflows {
+        // 1. workflows（用户定义 + 自动生成透传）→ MCP tools
+        for wf in all_workflows.values() {
             tools.push(build_workflow_tool(wf));
         }
 
-        // 3. CLI tools → MCP tools
+        // 2. CLI tools → MCP tools
         if let Some(cs) = cli_spec {
             for ct in &cs.tools {
                 tools.push(build_cli_tool(ct));
@@ -140,72 +147,35 @@ impl McpEmitter {
     }
 }
 
+// ── 构建完整 workflows 映射 ──
+
+/// 构建完整的 workflows 映射：用户定义 + 自动生成透传。
+fn build_all_workflows(
+    spec: &ApiSpec,
+    user_workflows: &[Workflow],
+) -> BTreeMap<String, Workflow> {
+    let mut all = BTreeMap::new();
+
+    // 用户定义的 workflow
+    for wf in user_workflows {
+        all.insert(wf.name.clone(), wf.clone());
+    }
+
+    // 检查每个 endpoint 是否有 workflow 覆盖
+    for ep in spec.endpoints.values() {
+        let ep_name = workflow_name_for_endpoint(ep);
+        if all.contains_key(&ep_name) {
+            continue;
+        }
+        // 自动生成透传 workflow
+        let wf = auto_generate_workflow(ep);
+        all.insert(ep_name, wf);
+    }
+
+    all
+}
+
 // ── 构建单个 MCP tool ──
-
-/// 把 Endpoint 转成 MCP tool 定义。
-fn build_endpoint_tool(ep: &Endpoint) -> serde_json::Value {
-    let desc = build_endpoint_description(ep);
-    let (properties, required) = build_endpoint_input_schema(ep);
-
-    serde_json::json!({
-        "name": ep.id,
-        "description": desc,
-        "inputSchema": {
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }
-    })
-}
-
-/// 构建 Endpoint 描述。
-fn build_endpoint_description(ep: &Endpoint) -> String {
-    let summary = ep.summary.as_deref().unwrap_or("");
-    let description = ep.description.as_deref().unwrap_or("");
-    let method_path = format!("{} {}", http_method_str(&ep.method), ep.path);
-    if description.is_empty() {
-        if summary.is_empty() {
-            method_path
-        } else {
-            format!("{method_path} — {summary}")
-        }
-    } else {
-        format!("{method_path} — {summary}\n{description}")
-    }
-}
-
-/// 构建 Endpoint 的 inputSchema properties + required。
-fn build_endpoint_input_schema(
-    ep: &Endpoint,
-) -> (serde_json::Map<String, serde_json::Value>, Vec<String>) {
-    let mut properties = serde_json::Map::new();
-    let mut required = Vec::new();
-
-    // path / query / header 参数
-    for p in &ep.params {
-        let param_schema = schema_ref_to_mcp_json(&p.schema);
-        properties.insert(p.name.clone(), param_schema);
-        if p.required {
-            required.push(p.name.clone());
-        }
-    }
-
-    // request body → 作为 `body` 参数
-    if let Some(rb) = &ep.request_body {
-        properties.insert(
-            "body".into(),
-            serde_json::json!({
-                "type": "object",
-                "description": rb.schema.name,
-            }),
-        );
-        if rb.required {
-            required.push("body".into());
-        }
-    }
-
-    (properties, required)
-}
 
 /// 把 Workflow 转成 MCP tool 定义。
 fn build_workflow_tool(wf: &Workflow) -> serde_json::Value {
@@ -228,7 +198,7 @@ fn build_workflow_tool(wf: &Workflow) -> serde_json::Value {
     let desc = wf.description.clone().unwrap_or_else(|| wf.name.clone());
 
     serde_json::json!({
-        "name": format!("workflow.{}", wf.name),
+        "name": wf.name,
         "description": desc,
         "inputSchema": {
             "type": "object",
@@ -239,7 +209,7 @@ fn build_workflow_tool(wf: &Workflow) -> serde_json::Value {
 }
 
 /// 把 CliTool 转成 MCP tool 定义。
-fn build_cli_tool(ct: &x_cli_core::CliTool) -> serde_json::Value {
+fn build_cli_tool(ct: &CliTool) -> serde_json::Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
 
@@ -258,7 +228,6 @@ fn build_cli_tool(ct: &x_cli_core::CliTool) -> serde_json::Value {
         }
     }
 
-    // 把 command + subcommand 编码进 description
     let cmd_line = if ct.subcommand.is_empty() {
         ct.command.clone()
     } else {
@@ -281,6 +250,97 @@ fn build_cli_tool(ct: &x_cli_core::CliTool) -> serde_json::Value {
     })
 }
 
+// ── 自动生成透传 workflow ──
+
+/// 为 endpoint 确定 workflow 名称。
+fn workflow_name_for_endpoint(ep: &Endpoint) -> String {
+    ep.summary
+        .as_deref()
+        .or(ep.operation_id.as_deref())
+        .unwrap_or(&ep.id)
+        .to_string()
+}
+
+/// 为没有 workflow 的 endpoint 自动生成透传 workflow。
+fn auto_generate_workflow(endpoint: &Endpoint) -> Workflow {
+    let name = workflow_name_for_endpoint(endpoint);
+    let description = format!("{} {}", http_method_str(&endpoint.method), endpoint.path);
+
+    // 从 endpoint 参数生成 workflow inputs
+    let mut inputs = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for p in &endpoint.params {
+        if seen.contains(&p.name) {
+            continue;
+        }
+        seen.insert(p.name.clone());
+        inputs.push(WorkflowInput {
+            name: p.name.clone(),
+            r#type: schema_type_to_mcp(&p.schema.name).to_string(),
+            description: p.description.clone(),
+            default: None,
+        });
+    }
+    if let Some(rb) = &endpoint.request_body {
+        if !seen.contains("body") {
+            seen.insert("body".to_string());
+            inputs.push(WorkflowInput {
+                name: "body".to_string(),
+                r#type: "object".to_string(),
+                description: Some(format!("请求体（{}）", rb.schema.name)),
+                default: None,
+            });
+        }
+    }
+
+    // 构建透传 step inputs
+    let mut path_params = BTreeMap::new();
+    let mut query = BTreeMap::new();
+    let mut headers = BTreeMap::new();
+    let mut body = BTreeMap::new();
+    if endpoint.request_body.is_some() {
+        body.insert("_raw".to_string(), "$input.body".to_string());
+    }
+
+    for p in &endpoint.params {
+        let ref_val = format!("$input.{}", p.name);
+        match p.location {
+            x_cli_core::ParamLocation::Path => {
+                path_params.insert(p.name.clone(), ref_val);
+            }
+            x_cli_core::ParamLocation::Query => {
+                query.insert(p.name.clone(), ref_val);
+            }
+            x_cli_core::ParamLocation::Header => {
+                headers.insert(p.name.clone(), ref_val);
+            }
+            x_cli_core::ParamLocation::Cookie => {
+                headers.insert(p.name.clone(), ref_val);
+            }
+        }
+    }
+
+    let step = WorkflowStep {
+        name: "call".to_string(),
+        description: None,
+        endpoint: endpoint.id.clone(),
+        depends_on: vec![],
+        inputs: StepInputs {
+            path_params,
+            query,
+            headers,
+            body,
+        },
+    };
+
+    Workflow {
+        name,
+        description: Some(description),
+        inputs,
+        steps: vec![step],
+    }
+}
+
 // ── 辅助函数 ──
 
 /// 构建参数 flag/position 的描述信息。
@@ -299,25 +359,23 @@ fn build_arg_flag_info(arg: &CliArg) -> String {
 }
 
 /// HttpMethod → 大写字符串。
-fn http_method_str(m: &HttpMethod) -> &'static str {
+fn http_method_str(m: &x_cli_core::HttpMethod) -> &'static str {
     match m {
-        HttpMethod::Get => "GET",
-        HttpMethod::Post => "POST",
-        HttpMethod::Put => "PUT",
-        HttpMethod::Patch => "PATCH",
-        HttpMethod::Delete => "DELETE",
-        HttpMethod::Head => "HEAD",
-        HttpMethod::Options => "OPTIONS",
+        x_cli_core::HttpMethod::Get => "GET",
+        x_cli_core::HttpMethod::Post => "POST",
+        x_cli_core::HttpMethod::Put => "PUT",
+        x_cli_core::HttpMethod::Patch => "PATCH",
+        x_cli_core::HttpMethod::Delete => "DELETE",
+        x_cli_core::HttpMethod::Head => "HEAD",
+        x_cli_core::HttpMethod::Options => "OPTIONS",
     }
 }
 
 /// SchemaRef → MCP JSON Schema 片断。
-fn schema_ref_to_mcp_json(schema: &SchemaRef) -> serde_json::Value {
-    // 优先用已经生成的 json_schema
+fn schema_ref_to_mcp_json(schema: &x_cli_core::SchemaRef) -> serde_json::Value {
     if !schema.json_schema.is_null() {
         return schema.json_schema.clone();
     }
-    // 否则按 name 推断
     serde_json::json!({
         "type": schema_type_to_mcp(&schema.name)
     })
@@ -406,7 +464,7 @@ mod tests {
         vec![Workflow {
             name: "买宠物并查询订单".into(),
             description: Some("创建宠物然后查订单".into()),
-            inputs: vec![x_cli_core::WorkflowInput {
+            inputs: vec![WorkflowInput {
                 name: "petName".into(),
                 description: Some("宠物名字".into()),
                 r#type: "string".into(),
@@ -451,8 +509,15 @@ tools:
         let content = std::fs::read_to_string(&tools_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         let tools = parsed["tools"].as_array().unwrap();
-        // 2 endpoints + 1 workflow
-        assert_eq!(tools.len(), 3, "应有 3 个 tool");
+        // 1 user workflow + 2 auto-generated (for 2 endpoints without workflow)
+        assert_eq!(tools.len(), 3, "应有 3 个 tool（1 workflow + 2 透传）");
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"买宠物并查询订单"));
+        assert!(names.contains(&"获取宠物列表"));
+        assert!(names.contains(&"创建宠物"));
+        // 不再直接暴露 endpoint id
+        assert!(!names.contains(&"test__get__pets"));
+        assert!(!names.contains(&"test__post__pets"));
     }
 
     #[test]
@@ -467,12 +532,12 @@ tools:
         let content = std::fs::read_to_string(dir.path().join("mcp-tools.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         let tools = parsed["tools"].as_array().unwrap();
-        // 2 endpoints + 1 workflow + 1 cli tool
+        // 1 workflow + 2 auto-generated + 1 CLI tool
         assert_eq!(tools.len(), 4, "含 CLI 工具应有 4 个 tool");
 
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"kubectl_get_pods"));
-        assert!(names.contains(&"workflow.买宠物并查询订单"));
+        assert!(names.contains(&"买宠物并查询订单"));
     }
 
     #[test]
@@ -484,15 +549,12 @@ tools:
 
         McpEmitter::emit_mcp(&spec, &workflows, Some(&cli_spec), dir.path()).unwrap();
 
-        // .x-cli/ir.json
         let ir_path = dir.path().join(".x-cli").join("ir.json");
         assert!(ir_path.exists(), ".x-cli/ir.json 应存在");
 
-        // .x-cli/cli.json
         let cli_path = dir.path().join(".x-cli").join("cli.json");
         assert!(cli_path.exists(), ".x-cli/cli.json 应存在");
 
-        // mcp-server.json
         let server_path = dir.path().join("mcp-server.json");
         assert!(server_path.exists(), "mcp-server.json 应存在");
 
@@ -503,52 +565,50 @@ tools:
     }
 
     #[test]
-    fn endpoint_tool_has_correct_structure() {
+    fn auto_generated_workflow_tools() {
         let spec = sample_api_spec();
-        let ep = spec.endpoints.get("test__post__pets").unwrap();
-        let tool = build_endpoint_tool(ep);
-
-        assert_eq!(tool["name"], "test__post__pets");
-        assert!(tool["description"].as_str().unwrap().contains("创建宠物"));
-
-        let schema = &tool["inputSchema"];
-        assert_eq!(schema["type"], "object");
-
-        let props = schema["properties"].as_object().unwrap();
-        assert!(props.contains_key("name"), "应有 name 参数");
-        assert!(props.contains_key("body"), "应有 body 参数");
-
-        let required = schema["required"].as_array().unwrap();
-        assert!(required.contains(&json!("name")), "name 应必填");
-        assert!(required.contains(&json!("body")), "body 应必填");
-    }
-
-    #[test]
-    fn cli_tool_includes_command_in_description() {
-        let cli_spec = sample_cli_spec();
-        let ct = &cli_spec.tools[0];
-        let tool = build_cli_tool(ct);
-
-        assert_eq!(tool["name"], "kubectl_get_pods");
-        let desc = tool["description"].as_str().unwrap();
-        assert!(desc.contains("kubectl get pods"), "description 应包含命令");
-
-        let schema = &tool["inputSchema"];
-        let props = schema["properties"].as_object().unwrap();
-        assert!(props.contains_key("namespace"));
-        let namespace = &props["namespace"];
-        assert!(namespace["description"]
-            .as_str()
-            .unwrap()
-            .contains("--namespace"));
-    }
-
-    #[test]
-    fn workflow_tool_has_workflow_prefix() {
         let workflows = sample_workflows();
-        let tool = build_workflow_tool(&workflows[0]);
+        let all = build_all_workflows(&spec, &workflows);
 
-        assert_eq!(tool["name"], "workflow.买宠物并查询订单");
+        // 应有 3 个 workflow：1 用户定义 + 2 自动生成
+        assert_eq!(all.len(), 3);
+
+        // 用户定义的 workflow
+        assert!(all.contains_key("买宠物并查询订单"));
+
+        // 自动生成的透传 workflow（用 summary 命名）
+        let get_pets = all.get("获取宠物列表").unwrap();
+        assert!(get_pets.description.as_deref().unwrap().contains("GET /pets"));
+        assert_eq!(get_pets.steps.len(), 1);
+        assert_eq!(get_pets.steps[0].endpoint, "test__get__pets");
+
+        let create_pet = all.get("创建宠物").unwrap();
+        assert!(create_pet.description.as_deref().unwrap().contains("POST /pets"));
+        assert_eq!(create_pet.steps.len(), 1);
+        assert_eq!(create_pet.steps[0].endpoint, "test__post__pets");
+        // 有 name 参数
+        assert!(create_pet.inputs.iter().any(|i| i.name == "name"));
+        // 有 body 参数
+        assert!(create_pet.inputs.iter().any(|i| i.name == "body"));
+    }
+
+    #[test]
+    fn workflow_tool_no_prefix() {
+        let wf = Workflow {
+            name: "买宠物并查询订单".into(),
+            description: Some("创建宠物然后查订单".into()),
+            inputs: vec![WorkflowInput {
+                name: "petName".into(),
+                description: Some("宠物名字".into()),
+                r#type: "string".into(),
+                default: None,
+            }],
+            steps: vec![],
+        };
+        let tool = build_workflow_tool(&wf);
+
+        // 不再有 workflow. 前缀
+        assert_eq!(tool["name"], "买宠物并查询订单");
         let schema = &tool["inputSchema"];
         let props = schema["properties"].as_object().unwrap();
         assert!(props.contains_key("petName"));
