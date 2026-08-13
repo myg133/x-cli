@@ -150,10 +150,7 @@ impl McpEmitter {
 // ── 构建完整 workflows 映射 ──
 
 /// 构建完整的 workflows 映射：用户定义 + 自动生成透传。
-fn build_all_workflows(
-    spec: &ApiSpec,
-    user_workflows: &[Workflow],
-) -> BTreeMap<String, Workflow> {
+fn build_all_workflows(spec: &ApiSpec, user_workflows: &[Workflow]) -> BTreeMap<String, Workflow> {
     let mut all = BTreeMap::new();
 
     // 用户定义的 workflow
@@ -578,12 +575,20 @@ tools:
 
         // 自动生成的透传 workflow（用 summary 命名）
         let get_pets = all.get("获取宠物列表").unwrap();
-        assert!(get_pets.description.as_deref().unwrap().contains("GET /pets"));
+        assert!(get_pets
+            .description
+            .as_deref()
+            .unwrap()
+            .contains("GET /pets"));
         assert_eq!(get_pets.steps.len(), 1);
         assert_eq!(get_pets.steps[0].endpoint, "test__get__pets");
 
         let create_pet = all.get("创建宠物").unwrap();
-        assert!(create_pet.description.as_deref().unwrap().contains("POST /pets"));
+        assert!(create_pet
+            .description
+            .as_deref()
+            .unwrap()
+            .contains("POST /pets"));
         assert_eq!(create_pet.steps.len(), 1);
         assert_eq!(create_pet.steps[0].endpoint, "test__post__pets");
         // 有 name 参数

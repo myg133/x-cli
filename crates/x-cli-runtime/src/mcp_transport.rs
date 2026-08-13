@@ -21,7 +21,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing::debug;
-use x_cli_core::ir::{ApiSpec, CliSpec, Endpoint, Workflow, WorkflowInput, WorkflowStep, StepInputs};
+use x_cli_core::ir::{
+    ApiSpec, CliSpec, Endpoint, StepInputs, Workflow, WorkflowInput, WorkflowStep,
+};
 use x_cli_core::protocol::{RpcError, RpcId, RpcResponse};
 
 // ── MCP 协议常量 ──
