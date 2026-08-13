@@ -119,7 +119,7 @@ jobs:
           chmod +x packages/x-cli-npm/bin/x-*
 
           cd packages/x-cli-npm
-          npm publish --access public
+          NODE_AUTH_TOKEN="" npm publish --access public
 
   # ──────────────────────────────────────────────
   # 创建 GitHub Release（仅打 tag 时触发）
