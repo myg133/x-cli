@@ -1,15 +1,15 @@
 {
   "name": "@myg133/x-cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "x-cli: 把后端 OpenAPI 文档转成 agent 可加载的 skill",
   "license": "MIT OR Apache-2.0",
   "bin": {
     "x": "install.js"
   },
   "optionalDependencies": {
-    "@myg133/x-cli-win32-x64": "0.1.2",
-    "@myg133/x-cli-linux-x64": "0.1.2",
-    "@myg133/x-cli-darwin-arm64": "0.1.2"
+    "@myg133/x-cli-win32-x64": "0.1.3",
+    "@myg133/x-cli-linux-x64": "0.1.3",
+    "@myg133/x-cli-darwin-arm64": "0.1.3"
   },
   "engines": {
     "node": ">=16"
