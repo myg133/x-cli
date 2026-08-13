@@ -85,6 +85,19 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
+      - name: 调试 OIDC 环境
+        shell: bash
+        run: |
+          echo "node: $(node --version)"
+          echo "npm: $(npm --version)"
+          echo "NPM_CONFIG_AUTH_TYPE: ${NPM_CONFIG_AUTH_TYPE:-<未设置>}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN: $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo 可用 || echo 不可用)"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL: ${ACTIONS_ID_TOKEN_REQUEST_URL:-<未设置>}"
+          echo "--- npm config list ---"
+          npm config list
+          echo "--- .npmrc 内容 ---"
+          cat .npmrc 2>/dev/null || echo "(无 .npmrc)"
+
       - name: 收集三平台二进制 → 发布到 npm
         shell: bash
         env:
@@ -102,7 +115,7 @@ jobs:
           chmod +x packages/x-cli-npm/bin/x-*
 
           cd packages/x-cli-npm
-          npm publish --access public
+          npm publish --access public --auth-type=oidc
 
   # ──────────────────────────────────────────────
   # 创建 GitHub Release（仅打 tag 时触发）

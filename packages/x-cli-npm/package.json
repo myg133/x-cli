@@ -28,6 +28,9 @@
     "json-rpc",
     "mcp"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "author": "myg133",
   "bugs": {
     "url": "https://github.com/myg133/x-cli/issues"
