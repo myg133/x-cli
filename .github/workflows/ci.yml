@@ -131,6 +131,15 @@ jobs:
         with:
           path: release-artifacts
 
+      - name: 重命名二进制（防止同名覆盖）
+        shell: bash
+        run: |
+          mkdir -p release-binaries
+          cp release-artifacts/x-cli-linux-x64/x      release-binaries/x-cli-linux-x64
+          cp release-artifacts/x-cli-win32-x64/x.exe   release-binaries/x-cli-win32-x64.exe
+          cp release-artifacts/x-cli-darwin-arm64/x    release-binaries/x-cli-darwin-arm64
+          ls -la release-binaries/
+
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
@@ -150,5 +159,4 @@ jobs:
             或从下方下载对应平台的二进制文件。
           draft: false
           prerelease: false
-          files: |
-            release-artifacts/**/*
+          files: release-binaries/*
