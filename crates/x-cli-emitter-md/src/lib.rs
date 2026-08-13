@@ -729,7 +729,9 @@ fn build_anthropic_description(spec: &ApiSpec, workflows: &[Workflow]) -> String
         .iter()
         .take(5)
         .map(|d| match &d.description {
-            Some(desc) if !desc.trim().is_empty() => desc.trim().to_string(),
+            Some(desc) if !desc.trim().is_empty() => {
+                desc.trim().lines().collect::<Vec<_>>().join(" ")
+            }
             _ => d.name.clone(),
         })
         .collect();
@@ -749,7 +751,7 @@ fn build_anthropic_description(spec: &ApiSpec, workflows: &[Workflow]) -> String
     let api_desc = spec
         .description
         .as_deref()
-        .map(|s| s.trim().replace('\n', " "))
+        .map(|s| s.lines().collect::<Vec<_>>().join(" ").trim().to_string())
         .filter(|s| !s.is_empty() && s.len() <= 200);
 
     // 合并为一个语义清晰、含触发关键词的 description
