@@ -6,7 +6,7 @@
 
 ## 概述
 
-x-cli 是一个 CLI 工具，能把后端 OpenAPI / CLI 文档转成 agent 可加载的 **skill**，并支持 MCP 协议运行。
+x-cli 是一个 CLI 工具，能把后端 OpenAPI / CLI 工具转成 agent 可加载的 **skill**，并支持 MCP 协议运行。
 
 **核心思路**：`x` 是打包工具，不是业务分析工具。业务的抽象（domain 划分、workflow 编排、CLI 封装）需要 **agent 的智能参与**来完成。
 
@@ -28,8 +28,8 @@ Layer 2（运行层）────── 业务用户 + agent + 业务 skill
 │
 ├── agent 加载业务 skill
 ├── `x serve` 启动 MCP 服务
-├── agent 通过 MCP 调业务工具（tools/list + tools/call）
-└── 业务工具可能是：HTTP API 调用 / CLI 子进程 / 多步 workflow
+├── agent 通过 MCP 调业务工具
+└── 不同用户传入不同配置参数
 ```
 
 | 层 | 角色 | agent 做什么 | 工具 |
@@ -61,9 +61,9 @@ meta-skill 位于 `out/x-cli-meta-skill/` 目录，是 agent 进入 **Layer 1** 
 **agent 加载 meta-skill 后，获得的能力**：
 
 1. 阅读 OpenAPI 文档，识别业务域（domain）和接口
-2. 编写 workflow YAML，把多个接口串成业务操作
-3. 编写 CliSpec YAML，封装 CLI 工具
-4. 使用 `x emit` 把这些东西打包成业务 skill
+2. 阅读 CLI 工具文档，编写 CliSpec YAML
+3. 编写 workflow YAML，把多个步骤串成业务操作
+4. 使用 `x emit` 打包成业务 skill
 5. 使用 `x serve` 启动服务、验证生成的 skill
 
 **关键文件**：
@@ -82,27 +82,36 @@ meta-skill 位于 `out/x-cli-meta-skill/` 目录，是 agent 进入 **Layer 1** 
 
 **这一步需要 agent 的智能参与**，`x` 只负责最后的打包。
 
+### 两种源是平行的一等公民
+
+```
+OpenAPI 规范 ──► x parse 解析 IR ──┐
+                                    ├──► 你写 workflow.yaml ──► x emit ──► 业务 skill
+CLI 工具文档 ──► 你写 CliSpec YAML ─┘
+```
+
+无论是 OpenAPI 还是 CLI，最终都汇入同一个 workflow 抽象。
+
 ### 典型流程
 
 ```
-1. 用户提供 OpenAPI 文档（或 URL）
+1. 用户提供 OpenAPI 文档 / CLI 工具描述
    │
-2. agent 阅读 OpenAPI，理解业务域
-   │  ├── 识别 domain（"宠物管理"、"订单系统"……）
-   │  └── 理解每个接口的业务语义
+2. agent 分析源，理解业务域
+   │  ├── OpenAPI：x parse 看 IR
+   │  └── CLI：读文档，写 CliSpec YAML
    │
-3. agent 编写 workflow.yaml
-   │  ├── 把多个接口编排成业务操作
-   │  ├── 例："买宠物" = 查库存 → 下单 → 付钱
-   │  └── 定义输入输出、依赖关系
+3. agent 设计 workflow 编排
+   │  ├── 把多个步骤串成业务操作
+   │  ├── 例：rsql 查数据库 → mc cp 上传到 minio
+   │  └── 配置参数用 $input.* 引用（不同用户传入不同配置）
    │
-4. agent 调用 `x emit` 打包
-   │  ├── x emit <spec> --out <dir> --workflow <workflow.yaml>
-   │  └── 产出：SKILL.md + mcp-tools.json + ir.json + workflows/
+4. agent 调用 x emit 打包
+   │  └── x emit <spec> --out <dir> --workflow <workflow.yaml> --cli-spec <cli-spec.yaml>
    │
 5. agent 验证生成的 skill
    │  ├── 检查 SKILL.md 的 frontmatter 和描述
-   │  └── 用 `x serve` 测试 MCP 工具调用
+   │  └── 用 x serve 测试 MCP 工具调用
    │
 6. 交付业务 skill 给业务用户
 ```
@@ -110,24 +119,36 @@ meta-skill 位于 `out/x-cli-meta-skill/` 目录，是 agent 进入 **Layer 1** 
 ### 命令示例
 
 ```bash
-# 1. 解析 OpenAPI 查看 IR
+# === 纯 OpenAPI ===
+# 1. 解析 IR
 x parse examples/petstore.yaml
 
-# 2. agent 编写 workflow.yaml（手动，agent 分析业务后写）
-# examples/petstore-workflow.yaml
-
-# 3. 打包成业务 skill
+# 2. 打包
 x emit examples/petstore.yaml --out ./generated/petstore-skill \
     --workflow examples/petstore-workflow.yaml
 
-# 4. 验证生成的 skill
-cat ./generated/petstore-skill/SKILL.md
+# === 纯 CLI 工具 ===
+# 1. 写 CliSpec YAML（agent 读文档后写）
+# cli-spec.yaml — 描述 rsql、mc 等命令
+
+# 2. 校验 CliSpec 格式
+x parse-cli-spec cli-spec.yaml
+
+# 3. 打包
+x emit --cli-spec cli-spec.yaml --out ./generated/stats-skill \
+    --workflow stats-workflow.yaml
+
+# === OpenAPI + CLI 混合 ===
+x emit examples/petstore.yaml \
+    --cli-spec cli-spec.yaml \
+    --out ./generated/hybrid-skill \
+    --workflow hybrid-workflow.yaml
 ```
 
 ### 输出产物
 
 ```
-generated/petstore-skill/
+generated/<name>-skill/
 ├── SKILL.md              # 业务 skill 入口（agent 加载此文件）
 ├── .x-cli/
 │   └── ir.json           # IR 数据（serve 用）
@@ -146,9 +167,6 @@ generated/petstore-skill/
 ```bash
 # 启动 MCP 服务（stdio 模式）
 x serve --skill ./generated/petstore-skill
-
-# 或 HTTP 模式（规划中）
-# x serve --mcp --skill ./generated/petstore-skill
 ```
 
 agent 通过标准 JSON-RPC 调业务工具：
@@ -159,47 +177,72 @@ agent 通过标准 JSON-RPC 调业务工具：
 
 // tools/call → 执行业务操作
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
-  "name":"买宠物并查询订单",
-  "arguments":{"petName":"fluffy"}
+  "name":"统计用户调用并保存到对象存储",
+  "arguments":{
+    "db_connection":"postgres://user_a:pass@a-db:5432/stats",
+    "bucket_url":"s3://a-bucket"
+  }
 }}
 
 // workflow.run → 执行多步工作流
 {"jsonrpc":"2.0","id":3,"method":"workflow.run","params":{
-  "workflow":"买宠物并查询订单",
-  "inputs":{"petName":"fluffy"}
+  "workflow":"统计用户调用并保存到对象存储",
+  "inputs":{
+    "db_connection":"postgres://user_a:pass@a-db:5432/stats",
+    "bucket_url":"s3://a-bucket"
+  }
 }}
 ```
 
+**不同用户使用同一个业务 skill，传入不同的配置参数**——DB 连接串、minio endpoint 都是运行时参数，不是写死在 skill 里的。
+
 ---
 
-## 完整端到端流程
+## 完整端到端示例
+
+### OpenAPI 场景
 
 ```bash
-# ===== Layer 1: agent 构建业务 skill =====
-
-# 1. 安装
+# ===== Layer 1: 构建 =====
 npm install -g @myg133/x-cli
-
-# 2. 查看 OpenAPI 结构
 x parse examples/petstore.yaml
-
-# 3. agent 分析业务，编写 workflow（示例见 examples/petstore-workflow.yaml）
-
-# 4. 打包
 x emit examples/petstore.yaml --out ./generated/petstore-skill \
     --workflow examples/petstore-workflow.yaml
 
-# ===== Layer 2: agent 执行业务 =====
-
-# 5. 启动 MCP 服务
-echo '{"jsonrpc":"2.0","id":1,"method":"ping"}' | \
-    x serve --skill ./generated/petstore-skill
-
-# 6. 调业务工具
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
-  "name":"买宠物并查询订单",
-  "arguments":{"petName":"fluffy"}
+# ===== Layer 2: 执行 =====
+echo '{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{
+  "workflow":"买宠物并查询订单","inputs":{"petId":"1"}
 }}' | x serve --skill ./generated/petstore-skill
+```
+
+### CLI 工具场景（rsql + minio-cli）
+
+```bash
+# ===== Layer 1: 构建 =====
+# 1. agent 写 cli-spec.yaml（描述 rsql query、mc cp 等命令）
+# 2. agent 写 workflow.yaml（串成"查数据库→上传对象存储"）
+# 3. 打包
+x emit --cli-spec cli-spec.yaml --out ./generated/stats-skill \
+    --workflow stats-workflow.yaml
+
+# ===== Layer 2: 执行 =====
+# 用户 A 用他家的 DB
+echo '{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{
+  "workflow":"统计用户调用并保存到对象存储",
+  "inputs":{
+    "db_connection":"postgres://user_a:pass@a-db:5432/stats",
+    "bucket_url":"s3://a-bucket"
+  }
+}}' | x serve --skill ./generated/stats-skill
+
+# 用户 B 用他家的 DB
+echo '{"jsonrpc":"2.0","id":2,"method":"workflow.run","params":{
+  "workflow":"统计用户调用并保存到对象存储",
+  "inputs":{
+    "db_connection":"mysql://user_b:pass@b-db:3306/stats",
+    "bucket_url":"s3://b-bucket"
+  }
+}}' | x serve --skill ./generated/stats-skill
 ```
 
 ---
