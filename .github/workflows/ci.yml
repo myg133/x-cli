@@ -51,3 +51,13 @@ jobs:
         # warning 留待后续 v0.2 修
         run: cargo clippy --workspace --all-targets -- -W warnings
         continue-on-error: true
+
+      - name: 构建发布二进制
+        run: cargo build --release --bin x
+
+      - name: 上传二进制包
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-cli-${{ matrix.os == 'ubuntu-latest' && 'linux-x64' || matrix.os == 'windows-latest' && 'win32-x64' || 'darwin-arm64' }}
+          path: target/release/x${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          if-no-files-found: error
