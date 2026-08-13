@@ -1,6 +1,6 @@
 # SETUP.md — x-cli 自动化安装指南
 
-> 此文档专为 AI agent 设计。agent 收到此文档的 URL 后，应按步骤自动安装 x-cli 并加载业务 skill。
+> 此文档专为 AI agent 设计。agent 收到此文档的 URL 后，应按步骤自动安装 x-cli 并加载 meta-skill。
 
 ---
 
@@ -8,84 +8,123 @@
 
 x-cli 是一个 CLI 工具，能把后端 OpenAPI / CLI 文档转成 agent 可加载的 **skill**，并支持 MCP 协议运行。
 
-**典型流程**：
+**核心思路**：`x` 是打包工具，不是业务分析工具。业务的抽象（domain 划分、workflow 编排、CLI 封装）需要 **agent 的智能参与**来完成。
+
+---
+
+## 两层架构（agent 在两个层的角色不同）
 
 ```
-OpenAPI spec ──► x emit ──► skill 目录 ──► x serve ──► MCP 服务 ──► agent 调用
+Layer 1（分析构建层）──── FDE 工程师 + agent + meta-skill
+│
+├── 拿到 OpenAPI / CLI 文档
+├── agent 阅读文档，理解业务语义
+├── agent 编写 workflow.yaml（业务编排）
+├── agent 编写 CliSpec YAML（CLI 封装）
+├── agent 使用 `x emit` 打包 → 产出业务 skill 目录
+│
+                ▼
+Layer 2（运行层）────── 业务用户 + agent + 业务 skill
+│
+├── agent 加载业务 skill
+├── `x serve` 启动 MCP 服务
+├── agent 通过 MCP 调业务工具（tools/list + tools/call）
+└── 业务工具可能是：HTTP API 调用 / CLI 子进程 / 多步 workflow
 ```
 
-**两层 skill 架构**：
-
-| 层 | 角色 | 谁用 |
-|---|---|---|
-| **meta-skill**（工具生成器） | 教 agent 用 `x` 命令，把 OpenAPI 转成业务 skill | FDE 工程师 / agent 首次搭建 |
-| **业务 skill**（具体后端） | 调具体后端 API 的 agent 工具集合 | 业务用户 / agent 日常使用 |
+| 层 | 角色 | agent 做什么 | 工具 |
+|---|---|---|---|
+| **Layer 1**（造 skill） | 把后端文档变成业务 skill | 分析业务、写 workflow、写 CliSpec、调 `x emit` 打包 | meta-skill + `x` CLI |
+| **Layer 2**（用 skill） | 执行业务操作 | 加载 skill、调 MCP 工具完成业务目标 | 业务 skill + `x serve` |
 
 ---
 
 ## 第一步：安装 x-cli
 
-agent 通过 npm 安装 x-cli 二进制：
-
 ```bash
 npm install -g @myg133/x-cli
 ```
 
-验证安装：
+验证：
 
 ```bash
 x --version
 # 输出示例: x 0.1.4
 ```
 
-> 如果 `x` 命令找不到，检查 `npm root -g` 是否在 PATH 中。
-
 ---
 
-## 第二步：加载 meta-skill（造业务 skill 用）
+## 第二步：加载 meta-skill（学会造业务 skill）
 
-meta-skill 位于仓库 `out/x-cli-meta-skill/` 目录，包含以下文件：
+meta-skill 位于 `out/x-cli-meta-skill/` 目录，是 agent 进入 **Layer 1** 的入口。
+
+**agent 加载 meta-skill 后，获得的能力**：
+
+1. 阅读 OpenAPI 文档，识别业务域（domain）和接口
+2. 编写 workflow YAML，把多个接口串成业务操作
+3. 编写 CliSpec YAML，封装 CLI 工具
+4. 使用 `x emit` 把这些东西打包成业务 skill
+5. 使用 `x serve` 启动服务、验证生成的 skill
+
+**关键文件**：
 
 | 文件 | 用途 |
 |---|---|
-| `SKILL.md` | 入口，agent 加载此文件获取完整能力 |
-| `commands.md` | `x` 命令速查 |
+| `SKILL.md` | 入口，完整的 agent 指导 |
+| `commands.md` | `x` 子命令速查 |
 | `auth-patterns.md` | 认证配置模式 |
-| `workflow-patterns.md` | 工作流编排模式 |
-| `troubleshooting.md` | 常见问题排查 |
-| `distribution.md` | 分发与打包说明 |
+| `workflow-patterns.md` | 如何写 workflow 编排业务 |
 | `examples/` | 4 个端到端范例 |
-
-**agent 加载 meta-skill 的步骤**：
-
-1. 读取 `SKILL.md` 了解整体能力
-2. 按需查阅 `commands.md` 了解 `x` 子命令
-3. 按需查阅 `auth-patterns.md` 和 `workflow-patterns.md` 了解高级用法
-
-**meta-skill 的职责**：当用户提供 OpenAPI 文档时，agent 使用 `x` 命令将文档转为业务 skill。
 
 ---
 
-## 第三步：生成业务 skill
+## 第三步：Layer 1 — agent 构建业务 skill
 
-当用户提供 OpenAPI 文档（YAML / JSON）时，agent 执行：
+**这一步需要 agent 的智能参与**，`x` 只负责最后的打包。
 
-```bash
-# 基础用法
-x emit <openapi-spec> --out <output-dir>
+### 典型流程
 
-# 示例：把 petstore.yaml 转成 skill
-x emit examples/petstore.yaml --out ./generated/petstore-skill
-
-# 指定输出格式（默认四种格式全出）
-x emit examples/petstore.yaml --out ./generated/petstore-skill --format mcp
-
-# 带 workflow（业务编排）
-x emit examples/petstore.yaml --out ./generated/petstore-skill \
-    --workflow examples/petstore-workflow.yaml
+```
+1. 用户提供 OpenAPI 文档（或 URL）
+   │
+2. agent 阅读 OpenAPI，理解业务域
+   │  ├── 识别 domain（"宠物管理"、"订单系统"……）
+   │  └── 理解每个接口的业务语义
+   │
+3. agent 编写 workflow.yaml
+   │  ├── 把多个接口编排成业务操作
+   │  ├── 例："买宠物" = 查库存 → 下单 → 付钱
+   │  └── 定义输入输出、依赖关系
+   │
+4. agent 调用 `x emit` 打包
+   │  ├── x emit <spec> --out <dir> --workflow <workflow.yaml>
+   │  └── 产出：SKILL.md + mcp-tools.json + ir.json + workflows/
+   │
+5. agent 验证生成的 skill
+   │  ├── 检查 SKILL.md 的 frontmatter 和描述
+   │  └── 用 `x serve` 测试 MCP 工具调用
+   │
+6. 交付业务 skill 给业务用户
 ```
 
-输出的业务 skill 目录结构：
+### 命令示例
+
+```bash
+# 1. 解析 OpenAPI 查看 IR
+x parse examples/petstore.yaml
+
+# 2. agent 编写 workflow.yaml（手动，agent 分析业务后写）
+# examples/petstore-workflow.yaml
+
+# 3. 打包成业务 skill
+x emit examples/petstore.yaml --out ./generated/petstore-skill \
+    --workflow examples/petstore-workflow.yaml
+
+# 4. 验证生成的 skill
+cat ./generated/petstore-skill/SKILL.md
+```
+
+### 输出产物
 
 ```
 generated/petstore-skill/
@@ -95,49 +134,71 @@ generated/petstore-skill/
 ├── mcp-tools.json        # MCP 工具定义
 ├── mcp-server.json       # MCP 连接配置
 └── workflows/            # 工作流定义
-    └── <name>.yaml
+    └── <name>.yaml       # agent 编写的业务编排
 ```
 
 ---
 
-## 第四步：启动 MCP 服务执行业务
+## 第四步：Layer 2 — agent 执行业务
 
-生成业务 skill 后，启动 MCP 服务：
+业务 skill 生成后，进入 **Layer 2**（运行层）。
 
 ```bash
-# 启动 stdio JSON-RPC 服务
+# 启动 MCP 服务（stdio 模式）
 x serve --skill ./generated/petstore-skill
 
-# 或指定 MCP 模式
-x serve --mcp --skill ./generated/petstore-skill
+# 或 HTTP 模式（规划中）
+# x serve --mcp --skill ./generated/petstore-skill
 ```
 
-agent 通过 MCP 协议调用 `tools/list` 和 `tools/call` 来使用后端接口。
+agent 通过标准 JSON-RPC 调业务工具：
+
+```json
+// tools/list → 返回业务工具列表（含 workflow 作为业务工具）
+{"jsonrpc":"2.0","id":1,"method":"tools/list"}
+
+// tools/call → 执行业务操作
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+  "name":"买宠物并查询订单",
+  "arguments":{"petName":"fluffy"}
+}}
+
+// workflow.run → 执行多步工作流
+{"jsonrpc":"2.0","id":3,"method":"workflow.run","params":{
+  "workflow":"买宠物并查询订单",
+  "inputs":{"petName":"fluffy"}
+}}
+```
 
 ---
 
-## 完整端到端示例
+## 完整端到端流程
 
 ```bash
-# 1. 安装 x-cli
+# ===== Layer 1: agent 构建业务 skill =====
+
+# 1. 安装
 npm install -g @myg133/x-cli
 
-# 2. 查看帮助
-x --help
-
-# 3. 解析 OpenAPI 查看 IR
+# 2. 查看 OpenAPI 结构
 x parse examples/petstore.yaml
 
-# 4. 生成业务 skill
-x emit examples/petstore.yaml --out ./generated/petstore-skill
+# 3. agent 分析业务，编写 workflow（示例见 examples/petstore-workflow.yaml）
+
+# 4. 打包
+x emit examples/petstore.yaml --out ./generated/petstore-skill \
+    --workflow examples/petstore-workflow.yaml
+
+# ===== Layer 2: agent 执行业务 =====
 
 # 5. 启动 MCP 服务
 echo '{"jsonrpc":"2.0","id":1,"method":"ping"}' | \
     x serve --skill ./generated/petstore-skill
 
-# 6. 通过 workflow 执行业务
-echo '{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{
-  "workflow":"买宠物并查询订单","inputs":{"petName":"fluffy"}
+# 6. 调业务工具
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+  "name":"买宠物并查询订单",
+  "arguments":{"petName":"fluffy"}
 }}' | x serve --skill ./generated/petstore-skill
 ```
 
@@ -151,14 +212,14 @@ echo '{"jsonrpc":"2.0","id":1,"method":"workflow.run","params":{
 | Linux x64 | `x-linux-x64` |
 | macOS ARM64 | `x-darwin-arm64` |
 
-npm 包会自动检测平台并安装对应二进制。
+npm 自动检测平台安装对应二进制。
 
 ---
 
 ## 管理版本
 
 ```bash
-# 查看当前版本
+# 查看版本
 x --version
 
 # 升级
