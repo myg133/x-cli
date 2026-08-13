@@ -26,27 +26,20 @@ x --version
 
 ## 安装原理
 
-`@myg133/x-cli` 本身不含二进制文件，而是通过 `optionalDependencies` 引用平台特定的子包：
+`@myg133/x-cli` 包含三平台的原生二进制文件，`install.js` 检测 `process.platform` + `process.arch` 后启动对应的二进制。
 
-| 子包 | 适用平台 |
+| 文件 | 适用平台 |
 |---|---|
-| `@myg133/x-cli-win32-x64` | Windows x64 |
-| `@myg133/x-cli-linux-x64` | Linux x64 |
-| `@myg133/x-cli-darwin-arm64` | macOS ARM64 (Apple Silicon) |
-
-`install.js` 检测 `process.platform` + `process.arch`，找到对应子包的二进制并 spawn。
-
-`os` + `cpu` 字段让 npm 只安装匹配平台的子包。Windows 用户不会装上 Linux 二进制，反之亦然。
+| `bin/x-win32-x64.exe` | Windows x64 |
+| `bin/x-linux-x64` | Linux x64 |
+| `bin/x-darwin-arm64` | macOS ARM64 (Apple Silicon) |
 
 ## 跟 x-cli 主项目的关系
 
 | 路径 | 角色 |
 |---|---|
 | `crates/x-cli/` | Rust 源码（`cargo build --release` 产出二进制） |
-| `packages/x-cli-npm/` | **本目录**，npm 主分发包 |
-| `packages/x-cli-win32-x64/` | Windows x64 平台子包 |
-| `packages/x-cli-linux-x64/` | Linux x64 平台子包 |
-| `packages/x-cli-darwin-arm64/` | macOS ARM64 平台子包 |
+| `packages/x-cli-npm/` | **本目录**，npm 分发包 |
 | `out/x-cli-meta-skill/` | meta-skill 文档（教 agent 怎么用 x） |
 | `out/superset-skill/` | 业务 skill（用 `x emit` 生成的） |
 
@@ -61,37 +54,22 @@ x --version
 #    修改 packages/x-cli-npm/package.json 中的 version 字段
 #    同步修改 Cargo.toml workspace version
 
-# 2. 构建二进制
+# 2. 构建三平台二进制
 cd crates/x-cli
 cargo build --release
 
-# 3. 复制到各平台包目录
-cp ../../target/release/x.exe ../../packages/x-cli-win32-x64/bin/x.exe
-cp ../../target/release/x      ../../packages/x-cli-linux-x64/bin/x
-cp ../../target/release/x      ../../packages/x-cli-darwin-arm64/bin/x
+# 3. 复制到 bin/ 目录（带平台后缀）
+mkdir -p ../packages/x-cli-npm/bin
+cp ../../target/release/x.exe ../../packages/x-cli-npm/bin/x-win32-x64.exe
+cp ../../target/release/x      ../../packages/x-cli-npm/bin/x-linux-x64
+cp ../../target/release/x      ../../packages/x-cli-npm/bin/x-darwin-arm64
 
-# 4. 同步平台包版本号（与主包保持一致）
-cd ../../packages/x-cli-win32-x64
-npm version <same-version>
-cd ../x-cli-linux-x64
-npm version <same-version>
-cd ../x-cli-darwin-arm64
-npm version <same-version>
-
-# 5. 发布平台包（必须先发）
-cd ../x-cli-win32-x64
-npm publish --access public
-cd ../x-cli-linux-x64
-npm publish --access public
-cd ../x-cli-darwin-arm64
-npm publish --access public
-
-# 6. 最后发主包
-cd ../x-cli-npm
+# 4. 发布
+cd ../../packages/x-cli-npm
 npm publish --access public
 ```
 
-**自动化发布**: 推 `v*` tag → GitHub Actions ([release.yml](/.github/workflows/release.yml)) 自动构建 3 平台 + 发布 npm。
+**自动化发布**: 推 `v*` tag → GitHub Actions ([ci.yml](/.github/workflows/ci.yml)) 自动构建 3 平台 + 发布到 npm + 创建 GitHub Release。
 
 ## 卸载
 

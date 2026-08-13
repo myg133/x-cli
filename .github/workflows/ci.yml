@@ -85,30 +85,19 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
-      - name: 同步版本号 + 发布平台包 + 发布主包
+      - name: 收集三平台二进制 → 发布到 npm
         shell: bash
         run: |
           VERSION=$(node -p "require('./packages/x-cli-npm/package.json').version")
           echo "版本: $VERSION"
 
-          for platform in linux-x64 win32-x64 darwin-arm64; do
-            BIN="x"
-            [ "$platform" = "win32-x64" ] && BIN="x.exe"
+          mkdir -p packages/x-cli-npm/bin
 
-            mkdir -p packages/x-cli-$platform/bin
-            cp artifacts/x-cli-$platform/$BIN packages/x-cli-$platform/bin/$BIN
+          cp artifacts/x-cli-linux-x64/x packages/x-cli-npm/bin/x-linux-x64
+          cp artifacts/x-cli-win32-x64/x.exe packages/x-cli-npm/bin/x-win32-x64.exe
+          cp artifacts/x-cli-darwin-arm64/x packages/x-cli-npm/bin/x-darwin-arm64
 
-            node -e "
-              const fs = require('fs');
-              const pkg = JSON.parse(fs.readFileSync('packages/x-cli-$platform/package.json', 'utf8'));
-              pkg.version = '$VERSION';
-              fs.writeFileSync('packages/x-cli-$platform/package.json', JSON.stringify(pkg, null, 2) + '\n');
-            "
-
-            cd packages/x-cli-$platform
-            npm publish --access public
-            cd ../..
-          done
+          chmod +x packages/x-cli-npm/bin/x-*
 
           cd packages/x-cli-npm
           npm publish --access public

@@ -45,18 +45,15 @@ x-cli 通过 npm 分发（`@myg133/x-cli`），采用平台子包模式：
 
 | 目录 | npm 包名 |
 |---|---|
-| `packages/x-cli-npm/` | `@myg133/x-cli`（单一事实源）|
-| `packages/x-cli-win32-x64/` | `@myg133/x-cli-win32-x64` |
-| `packages/x-cli-linux-x64/` | `@myg133/x-cli-linux-x64` |
-| `packages/x-cli-darwin-arm64/` | `@myg133/x-cli-darwin-arm64` |
+| `packages/x-cli-npm/` | `@myg133/x-cli`（单一事实源，内含三平台二进制）|
 
 ### 发布步骤
 
 1. 更新 `packages/x-cli-npm/package.json` 的 version 字段
 2. 同步更新 `Cargo.toml` workspace version
 3. `git commit && git tag v<version>`
-4. `git push --tags` → GitHub Actions CI 触发（合并的 workflow，无需单独 release.yml）
-5. CI 自动：测试 → 构建 3 平台二进制 → 发布 npm 平台子包 → 发布主包 → 创建 GitHub Release
+4. `git push --tags` → GitHub Actions CI 触发
+5. CI 自动：测试 → 构建 3 平台二进制 → 发布到 npm → 创建 GitHub Release
 
 CI 配置: `.github/workflows/ci.yml`（使用 npm Trusted Publishers OIDC 认证，无需 `NPM_TOKEN` secret）。
 
