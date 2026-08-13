@@ -13,7 +13,7 @@ use tracing::{debug, error, warn};
 use x_cli_core::ir::{ApiSpec, Workflow};
 use x_cli_core::protocol::{
     error_code, CallParams, CallResult, RpcError, RpcId, RpcMethod, RpcRequest, RpcResponse,
-    WorkflowRunParams, WorkflowRunResult,
+    WorkflowRunParams,
 };
 
 /// 启动 stdio 上的 JSON-RPC 服务

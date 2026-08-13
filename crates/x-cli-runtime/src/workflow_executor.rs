@@ -12,6 +12,7 @@ use tracing::warn;
 use x_cli_core::ir::{ApiSpec, InputRef, StepInputs, Workflow, WorkflowStep};
 use x_cli_core::protocol::{error_code, RpcError, WorkflowRunResult, WorkflowStepResult};
 
+/// Workflow 运行时执行器，负责按序执行 workflow 的每个步骤。
 pub struct WorkflowExecutor {
     spec: Arc<ApiSpec>,
     workflows: BTreeMap<String, Arc<Workflow>>,
@@ -20,6 +21,7 @@ pub struct WorkflowExecutor {
 }
 
 impl WorkflowExecutor {
+    /// 创建一个新的 WorkflowExecutor。
     pub fn new(
         spec: Arc<ApiSpec>,
         workflows: BTreeMap<String, Arc<Workflow>>,
@@ -34,10 +36,12 @@ impl WorkflowExecutor {
         }
     }
 
+    /// 获取底层 HTTP 调用器。
     pub fn http_caller(&self) -> &HttpCaller {
         &self.http_caller
     }
 
+    /// 获取 base URL（用于覆盖 OpenAPI spec 中的 server URL）。
     pub fn base_url(&self) -> &Option<String> {
         &self.base_url
     }

@@ -29,11 +29,12 @@ fn workflow(yaml: &str) -> Arc<Workflow> {
 
 /// 启动本地 HTTP server，每个请求返回固定 JSON body
 /// 返回 (server base url, JoinHandle)
+#[allow(dead_code)]
 async fn spawn_local_server(response_body: String) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr: SocketAddr = listener.local_addr().expect("local_addr");
     let url = format!("http://{}", addr);
-    let handle = tokio::spawn(async move {
+    let _handle = tokio::spawn(async move {
         loop {
             let (mut socket, _) = match listener.accept().await {
                 Ok(p) => p,
@@ -54,7 +55,7 @@ async fn spawn_local_server(response_body: String) -> (String, tokio::task::Join
             });
         }
     });
-    (url, handle)
+    (url, _handle)
 }
 
 /// 构造一个回显 body 的 mock server：把请求 path 写进 body.url
@@ -62,7 +63,7 @@ async fn spawn_echo_server() -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr: SocketAddr = listener.local_addr().expect("local_addr");
     let url = format!("http://{}", addr);
-    let handle = tokio::spawn(async move {
+    let _handle = tokio::spawn(async move {
         loop {
             let (mut socket, _) = match listener.accept().await {
                 Ok(p) => p,
@@ -104,7 +105,7 @@ async fn spawn_echo_server() -> (String, tokio::task::JoinHandle<()>) {
             });
         }
     });
-    (url, handle)
+    (url, _handle)
 }
 
 /// 启动 serve + 发一个 JSON-RPC 请求 + 收响应
@@ -396,7 +397,7 @@ async fn auth_bearer_token_is_injected_in_http_requests() {
     let expected = "expected-token-xyz";
 
     let expected_clone = expected.to_string();
-    let handle = tokio::spawn(async move {
+    let _handle = tokio::spawn(async move {
         loop {
             let (mut socket, _) = match listener.accept().await {
                 Ok(p) => p,
@@ -502,7 +503,7 @@ async fn wrong_bearer_token_returns_401() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr: SocketAddr = listener.local_addr().expect("local_addr");
     let url = format!("http://{}", addr);
-    let handle = tokio::spawn(async move {
+    let _handle = tokio::spawn(async move {
         loop {
             let (mut socket, _) = match listener.accept().await {
                 Ok(p) => p,
@@ -564,7 +565,7 @@ async fn custom_header_is_sent() {
     let api_key = "secret-key-123";
     let expected_header = format!("X-API-Key: {api_key}");
     let expected_clone = expected_header.clone();
-    let handle = tokio::spawn(async move {
+    let _handle = tokio::spawn(async move {
         loop {
             let (mut socket, _) = match listener.accept().await {
                 Ok(p) => p,

@@ -1,6 +1,6 @@
 //! workflow.yaml 解析的回归测试
 
-use x_cli_core::{parse_workflow_str, InputRef, StepInputs, Workflow, WorkflowInput, WorkflowStep};
+use x_cli_core::{parse_workflow_str, InputRef, StepInputs, Workflow};
 
 const SIMPLE: &str = r#"
 name: 简单两步工作流

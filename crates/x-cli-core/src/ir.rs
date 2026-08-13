@@ -29,7 +29,9 @@ pub struct ApiSpec {
 /// 业务域
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Domain {
+    /// 域名称，如 `pet`、`user`。
     pub name: String,
+    /// 域描述。
     #[serde(default)]
     pub description: Option<String>,
     /// 该域下全部接口的 id
@@ -43,78 +45,117 @@ pub struct Endpoint {
     pub id: String,
     /// 所属域
     pub domain: String,
+    /// HTTP 方法
     pub method: HttpMethod,
+    /// URL 路径
     pub path: String,
+    /// OpenAPI operationId
     #[serde(default)]
     pub operation_id: Option<String>,
+    /// 接口摘要
     #[serde(default)]
     pub summary: Option<String>,
+    /// 接口详细描述
     #[serde(default)]
     pub description: Option<String>,
+    /// 标签列表（用于分类）
     #[serde(default)]
     pub tags: Vec<String>,
+    /// 路径/查询/请求头参数
     #[serde(default)]
     pub params: Vec<Param>,
+    /// 请求体
     #[serde(default)]
     pub request_body: Option<RequestBody>,
+    /// 响应定义
     #[serde(default)]
     pub responses: Vec<Response>,
+    /// 是否已废弃
     #[serde(default)]
     pub deprecated: bool,
 }
 
+/// HTTP 请求方法。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
+    /// GET 请求
     Get,
+    /// POST 请求
     Post,
+    /// PUT 请求
     Put,
+    /// PATCH 请求
     Patch,
+    /// DELETE 请求
     Delete,
+    /// HEAD 请求
     Head,
+    /// OPTIONS 请求
     Options,
 }
 
+/// 接口参数（路径/查询/请求头）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Param {
+    /// 参数名
     pub name: String,
+    /// 参数位置
     pub location: ParamLocation,
+    /// 是否必填
     #[serde(default)]
     pub required: bool,
+    /// 参数描述
     #[serde(default)]
     pub description: Option<String>,
+    /// 参数 schema 定义
     pub schema: SchemaRef,
 }
 
+/// 参数位置（对应 OpenAPI parameter location）。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ParamLocation {
+    /// 路径参数（URL 模板变量）
     Path,
+    /// 查询参数（URL ? 后）
     Query,
+    /// 请求头参数
     Header,
+    /// Cookie 参数
     Cookie,
 }
 
+/// HTTP 请求体定义。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestBody {
+    /// 是否必填
     #[serde(default)]
     pub required: bool,
     /// 常见 application/json；多类型时取第一个
     pub content_type: String,
+    /// 请求体 schema
     pub schema: SchemaRef,
 }
 
+/// HTTP 响应定义。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
+    /// HTTP 状态码
     pub status: u16,
+    /// 响应描述
     #[serde(default)]
     pub description: Option<String>,
+    /// 响应 content-type
     #[serde(default)]
     pub content_type: Option<String>,
+    /// 响应体 schema（可为空）
     #[serde(default)]
     pub schema: Option<SchemaRef>,
 }
 
+/// Schema 引用
+///
 /// Schema 引用
 ///
 /// - `name` / `description`：给人看的类型名
@@ -122,10 +163,14 @@ pub struct Response {
 /// - `resolved`：解析 $ref 后的结构化树（B 阶段新增），用于 emitter 渲染和后续 LLM 理解
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaRef {
+    /// 类型名（如 `Pet`、`Order`）
     pub name: String,
+    /// 类型描述
     #[serde(default)]
     pub description: Option<String>,
+    /// 完整 JSON Schema 值
     pub json_schema: serde_json::Value,
+    /// 解析 $ref 后的结构化树
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved: Option<Box<ResolvedSchema>>,
 }
@@ -148,6 +193,7 @@ impl SchemaRef {
 /// 循环引用通过 `recursive: true` 标记回填，不再深入。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedSchema {
+    /// Schema 种类（Object / Array / Scalar / Any）
     pub kind: SchemaKind,
     /// Object: 属性定义
     #[serde(default)]
@@ -163,12 +209,17 @@ pub struct ResolvedSchema {
     pub recursive: bool,
 }
 
+/// Schema 种类。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SchemaKind {
+    /// 对象类型（有 properties）
     Object,
+    /// 数组类型（有 items）
     Array,
+    /// 标量类型（string / number / boolean / integer）
     Scalar,
+    /// 任意类型（无约束）
     Any,
 }
 
@@ -183,29 +234,39 @@ pub enum SchemaKind {
 /// - 其他字符串：原样作为静态值
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workflow {
+    /// 工作流名称
     pub name: String,
+    /// 工作流描述
     #[serde(default)]
     pub description: Option<String>,
+    /// 外部输入参数列表
     #[serde(default)]
     pub inputs: Vec<WorkflowInput>,
+    /// 执行步骤（按拓扑序或数组顺序）
     pub steps: Vec<WorkflowStep>,
 }
 
-/// 工作流的外部输入参数
+/// 工作流的外部输入参数。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowInput {
+    /// 参数名
     pub name: String,
+    /// 参数类型（如 `string`、`number`、`boolean`）
     pub r#type: String,
+    /// 参数描述（提示 agent 应填入什么值）
     #[serde(default)]
     pub description: Option<String>,
+    /// 默认值
     #[serde(default)]
     pub default: Option<serde_json::Value>,
 }
 
-/// 工作流的一个步骤
+/// 工作流的一个步骤。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowStep {
+    /// 步骤名称（在同一工作流内唯一）
     pub name: String,
+    /// 步骤描述（提示 agent 此步骤的作用）
     #[serde(default)]
     pub description: Option<String>,
     /// endpoint id（来自 ApiSpec.endpoints）
@@ -215,6 +276,7 @@ pub struct WorkflowStep {
     /// 一旦有任何 step 写了 depends_on，所有 step 都按拓扑序执行。
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// 步骤输入参数
     #[serde(default)]
     pub inputs: StepInputs,
 }
@@ -223,12 +285,16 @@ pub struct WorkflowStep {
 /// 运行时按 `$input.` / `$steps.` 前缀判断是引用还是静态值。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StepInputs {
+    /// 路径参数
     #[serde(default)]
     pub path_params: BTreeMap<String, String>,
+    /// 查询参数
     #[serde(default)]
     pub query: BTreeMap<String, String>,
+    /// 请求头参数
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
+    /// 请求体参数
     #[serde(default)]
     pub body: BTreeMap<String, String>,
 }
@@ -239,7 +305,12 @@ pub enum InputRef {
     /// 引用工作流外部输入
     Input(String),
     /// 引用上一步响应
-    StepOutput { step: String, path: Vec<String> },
+    StepOutput {
+        /// 步骤名称
+        step: String,
+        /// 响应中的 JSON path（如 `"response.body.id"`）
+        path: Vec<String>,
+    },
     /// 静态值
     Static(String),
 }

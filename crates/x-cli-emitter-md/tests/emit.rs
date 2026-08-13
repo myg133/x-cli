@@ -821,7 +821,7 @@ async fn auth_example_yaml_is_parseable_as_auth_config() {
         .emit(&spec, &[], &out, SkillFormat::Markdown)
         .await
         .expect("emit");
-    let raw = std::fs::read_to_string(out.join("auth.example.yaml")).expect("read");
+    let _raw = std::fs::read_to_string(out.join("auth.example.yaml")).expect("read");
     // 模板包含被注释掉的 bearer 示例，它能被解析（但该示例会报错）。这里只验证有效的 login 部分能解析
     // 复制一份有效的试验版本
     let test_cfg = r#"

@@ -165,11 +165,14 @@ fn build_query_pairs(query: &Value) -> Vec<(String, String)> {
     pairs
 }
 
-/// HTTP 响应
+/// HTTP 响应（从 HttpResponseExtractor 解析后的结构化结果）。
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
+    /// HTTP 状态码
     pub status: u16,
+    /// 响应头（JSON 对象）
     pub headers: Value,
+    /// 响应体（JSON）
     pub body: Value,
 }
 

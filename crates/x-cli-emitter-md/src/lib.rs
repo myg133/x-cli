@@ -19,7 +19,7 @@ use std::fs;
 use std::path::Path;
 use x_cli_core::ir::{
     ApiSpec, Endpoint, HttpMethod, InputRef, ParamLocation, ResolvedSchema, Response, SchemaRef,
-    Workflow, WorkflowStep,
+    Workflow,
 };
 
 /// Skill 输出格式
@@ -51,6 +51,7 @@ pub trait SkillEmitter {
 pub struct MarkdownEmitter;
 
 impl MarkdownEmitter {
+    /// 创建一个新的 MarkdownEmitter。
     pub fn new() -> Self {
         Self
     }
@@ -454,6 +455,7 @@ fn sanitize_filename(s: &str) -> String {
 /// 路径用 sanitize：空格 → '-', 文件系统不安全字符 → '_'。
 /// 区别于 sanitize_filename：路径里 '-' 比 '_' 视觉更友好，
 /// 但 '-' 不能作为文件名起始（在 shell 命令里可能误判为 flag），所以文件仍用 _。
+#[allow(dead_code)]
 fn sanitize_path(s: &str) -> String {
     s.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
         .replace(' ', "-")
@@ -802,7 +804,7 @@ fn render_skill_frontmatter(spec: &ApiSpec, workflows: &[Workflow]) -> String {
 }
 
 /// frontmatter 值要简单（不能含 :、换行、引号）
-/// frontmatter 值要简单（不能含 :、换行、引号）
+#[allow(dead_code)]
 fn sanitize_for_frontmatter(s: &str) -> String {
     s.replace(['\n', '\r', ':', '"'], " ")
         .chars()
