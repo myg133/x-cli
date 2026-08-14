@@ -1,5 +1,5 @@
 ---
-name: x-cli-skill-factory
+name: x-cli-meta-skill
 description: >-
   **x-cli 造 skill 的 meta-skill，用于 Layer 1（分析构建层）。** 当用户提供 OpenAPI / CLI 文档、
   希望"让 agent 能调这个后端"时加载此 skill。此 skill 教 agent 如何分析后端文档、理解业务域、
@@ -369,11 +369,11 @@ echo '{"jsonrpc":"2.0","id":3,"method":"workflow.run","params":{
 
 | 文件 | 何时读 |
 |---|---|
-| `patterns/commands.md` | 不确定某个 x 子命令的 flag / 输出格式时 |
-| `patterns/auth-patterns.md` | 需要配置鉴权时 |
-| `patterns/workflow-patterns.md` | **写 workflow 前必读**——语法、依赖、引用语法 |
-| `patterns/troubleshooting.md` | 验证失败 / 401 / endpoint 找不到时 |
-| `patterns/scope.md` | 理解两层架构和 agent 角色时 |
+| `references/commands.md` | 不确定某个 x 子命令的 flag / 输出格式时 |
+| `references/auth-patterns.md` | 需要配置鉴权时 |
+| `references/workflow-patterns.md` | **写 workflow 前必读**——语法、依赖、引用语法 |
+| `references/troubleshooting.md` | 验证失败 / 401 / endpoint 找不到时 |
+| `references/scope.md` | 理解两层架构和 agent 角色时 |
 | `distribution.md` | 首次拿到这个 skill 时先读——知道怎么打包、怎么分发 |
 | `examples/` | 写 workflow 前看参考实现 |
 
