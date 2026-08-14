@@ -1,11 +1,10 @@
 ---
 name: x-cli-meta-skill
 description: >-
-  **x-cli 造 skill 的 meta-skill，用于 Layer 1（分析构建层）。** 当用户提供 OpenAPI / CLI 文档、
+  x-cli 造 skill 的 meta-skill，用于 Layer 1（分析构建层）。当用户提供 OpenAPI / CLI 文档、
   希望"让 agent 能调这个后端"时加载此 skill。此 skill 教 agent 如何分析后端文档、理解业务域、
-  设计 workflow 编排、编写 CliSpec，最后用 x emit 打包成业务 skill。**x 不是业务分析工具，是打包工具。
-  业务抽象（domain 划分、workflow 编排、CLI 封装）需要 agent 的智能参与。** 如果用户已经有现成的
-  业务 skill 在 generated/，直接加载业务 skill（Layer 2），而非本 skill。
+  设计 workflow 编排、编写 CliSpec，最后用 x emit 打包成业务 skill。x 不是业务分析工具，是打包工具。
+  业务抽象（domain 划分、workflow 编排、CLI 封装）需要 agent 的智能参与。
 ---
 
 # x-cli skill factory
