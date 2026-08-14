@@ -19,8 +19,9 @@
 **包含**（必须一起分发）：
 
 - `SKILL.md`（入口）
-- `commands.md` / `auth-patterns.md` / `workflow-patterns.md` / `troubleshooting.md` / `distribution.md`（本文档）
-- `examples/*.md`（4 个端到端范例）
+- `patterns/commands.md` / `patterns/auth-patterns.md` / `patterns/workflow-patterns.md` / `patterns/troubleshooting.md` / `patterns/scope.md`
+- `distribution.md`（本文档）
+- `examples/*.md`（5 个端到端范例）
 
 **不包含**：
 
@@ -63,12 +64,12 @@ Copy-Item -Recurse out\x-cli-meta-skill "$env:USERPROFILE\.claude\skills\x-cli-s
 ```bash
 # POSIX
 test -f out/x-cli-meta-skill/SKILL.md && \
-test -f out/x-cli-meta-skill/commands.md && \
+test -f out/x-cli-meta-skill/patterns/commands.md && \
 test -f out/x-cli-meta-skill/distribution.md && \
 echo "OK: meta-skill 完整"
 
 # Windows PowerShell
-$files = "SKILL.md","commands.md","distribution.md"
+$files = "SKILL.md","patterns\commands.md","distribution.md"
 $missing = $files | Where-Object { -not (Test-Path "out\x-cli-meta-skill\$_") }
 if ($missing) { "缺失: $missing" } else { "OK: meta-skill 完整" }
 ```
@@ -152,10 +153,10 @@ x serve --skill C:\Users\me\skills\petstore
 最小清单（**这个一定要有**）：
 
 1. `out/x-cli-meta-skill/SKILL.md`
-2. `out/x-cli-meta-skill/commands.md`
-3. `out/x-cli-meta-skill/auth-patterns.md`
-4. `out/x-cli-meta-skill/workflow-patterns.md`
-5. `out/x-cli-meta-skill/troubleshooting.md`
+2. `out/x-cli-meta-skill/patterns/commands.md`
+3. `out/x-cli-meta-skill/patterns/auth-patterns.md`
+4. `out/x-cli-meta-skill/patterns/workflow-patterns.md`
+5. `out/x-cli-meta-skill/patterns/troubleshooting.md`
 6. `out/x-cli-meta-skill/distribution.md`
 
 可选清单（**强烈建议带上**）：

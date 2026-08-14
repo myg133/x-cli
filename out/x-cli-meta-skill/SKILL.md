@@ -369,10 +369,11 @@ echo '{"jsonrpc":"2.0","id":3,"method":"workflow.run","params":{
 
 | 文件 | 何时读 |
 |---|---|
-| `commands.md` | 不确定某个 x 子命令的 flag / 输出格式时 |
-| `auth-patterns.md` | 需要配置鉴权时 |
-| `workflow-patterns.md` | **写 workflow 前必读**——语法、依赖、引用语法 |
-| `troubleshooting.md` | 验证失败 / 401 / endpoint 找不到时 |
+| `patterns/commands.md` | 不确定某个 x 子命令的 flag / 输出格式时 |
+| `patterns/auth-patterns.md` | 需要配置鉴权时 |
+| `patterns/workflow-patterns.md` | **写 workflow 前必读**——语法、依赖、引用语法 |
+| `patterns/troubleshooting.md` | 验证失败 / 401 / endpoint 找不到时 |
+| `patterns/scope.md` | 理解两层架构和 agent 角色时 |
 | `distribution.md` | 首次拿到这个 skill 时先读——知道怎么打包、怎么分发 |
 | `examples/` | 写 workflow 前看参考实现 |
 
